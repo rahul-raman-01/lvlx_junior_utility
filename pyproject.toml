@@ -1,0 +1,25 @@
+[project]
+name = "filecopy-tool"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "comtypes>=1.4.16",
+    "docx2pdf>=0.1.8",
+    "docxtpl>=0.20.2",
+    "lxml>=6.1.1",
+    "matplotlib>=3.11.1",
+    "mplcursors>=0.7.1",
+    "openpyxl>=3.1.5",
+    "pdfplumber>=0.11.10",
+    "pillow>=12.3.0",
+    "pymupdf==1.28.0",
+    "pypdf>=6.14.2",
+    "pypdf2>=3.0.1",
+    "python-pptx==1.0.2",
+    "requests>=2.34.2",
+    "tkcalendar>=1.6.1",
+    "typing-extensions==4.16.0",
+    "xlsxwriter==3.2.9",
+]
