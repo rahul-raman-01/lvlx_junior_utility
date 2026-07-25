@@ -102,17 +102,23 @@ class LVLXLauncher:
                 db_path = new_path
 
         exe_name = os.path.join("SystemFiles", script_name.replace('.py', '.exe'))
+        mac_app_name = script_name.replace('.py', '.app')
 
         try:
-            # Safely cross-platform launch (handles .exe on Windows or falls back to standard .py)
+            # 1. Safely launch Windows .exe
             if os.name == 'nt' and os.path.exists(exe_name):
                 subprocess.Popen([exe_name, db_path])
+                
+            # 2. Safely launch macOS .app bundle 
+            elif sys.platform == 'darwin' and os.path.exists(mac_app_name):
+                subprocess.Popen(["open", "-n", "-a", os.path.abspath(mac_app_name), "--args", db_path])
+                
+            # 3. Fallback to raw .py script
             elif os.path.exists(script_name):
-                # Using sys.executable guarantees it uses the exact same Python 
-                # (and virtual env) that the launcher is currently running in.
                 subprocess.Popen([sys.executable, script_name, db_path])
+                
             else:
-                messagebox.showerror("Error", f"Could not find {script_name} in this folder.")
+                messagebox.showerror("Error", f"Could not find {script_name} or {mac_app_name} in this folder.")
                 return
 
             self.root.destroy()
