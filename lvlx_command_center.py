@@ -20,6 +20,16 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 
+# --- MAC .APP DIRECTORY FIX ---
+if getattr(sys, 'frozen', False):
+    if sys.platform == 'darwin' and '.app' in sys.executable:
+        app_dir = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
+        os.chdir(os.path.dirname(app_dir))
+    else:
+        os.chdir(os.path.dirname(sys.executable))
+else:
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 warnings.filterwarnings("ignore", message="Tight layout not applied")
 
 try:

@@ -12,6 +12,17 @@ from datetime import datetime
 from docxtpl import DocxTemplate, InlineImage, RichText
 from docx.shared import Mm
 
+
+# --- MAC .APP DIRECTORY FIX ---
+if getattr(sys, 'frozen', False):
+    if sys.platform == 'darwin' and '.app' in sys.executable:
+        app_dir = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
+        os.chdir(os.path.dirname(app_dir))
+    else:
+        os.chdir(os.path.dirname(sys.executable))
+else:
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # --- PDF & Image Conversion Libraries ---
 try:
     from docx2pdf import convert as convert_to_pdf

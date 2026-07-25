@@ -4,6 +4,16 @@ import os
 import sys
 import subprocess
 
+# --- MAC .APP DIRECTORY FIX ---
+if getattr(sys, 'frozen', False):
+    if sys.platform == 'darwin' and '.app' in sys.executable:
+        app_dir = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
+        os.chdir(os.path.dirname(app_dir))
+    else:
+        os.chdir(os.path.dirname(sys.executable))
+else:
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 class LVLXLauncher:
     def __init__(self, root):
         self.root = root
@@ -92,14 +102,15 @@ class LVLXLauncher:
             safe_name = new_school.replace(" ", "_").replace("/", "-")
             db_path = os.path.join(self.reports_folder, safe_name, "database", f"{safe_name}.db")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
+            db_path = os.path.abspath(db_path)
         else:
             legacy_path = os.path.join(self.legacy_db_folder, f"{existing_school}.db")
             new_path = os.path.join(self.reports_folder, existing_school, "database", f"{existing_school}.db")
             
             if os.path.exists(legacy_path):
-                db_path = legacy_path
+                db_path = os.path.abspath(legacy_path)
             else:
-                db_path = new_path
+                db_path = os.path.abspath(new_path)
 
         exe_name = os.path.join("SystemFiles", script_name.replace('.py', '.exe'))
         mac_app_name = script_name.replace('.py', '.app')
