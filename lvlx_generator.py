@@ -12,7 +12,6 @@ from datetime import datetime
 from docxtpl import DocxTemplate, InlineImage, RichText
 from docx.shared import Mm
 
-
 # --- MAC .APP DIRECTORY FIX ---
 if getattr(sys, 'frozen', False):
     if sys.platform == 'darwin' and '.app' in sys.executable:
@@ -130,10 +129,20 @@ class GrowthReportApp:
 
         self.root.title(f"LVLX Growth Report Generator - {self.display_school_name}")
         self.root.geometry("880x750") 
-        self.root.configure(bg="#f4f6f7") 
+
+        # --- CROSS-PLATFORM THEME ENGINE ---
+        self.is_mac = sys.platform == 'darwin'
+        self.bg_color = "#f4f6f7"
+        self.root.configure(bg=self.bg_color) 
 
         style = ttk.Style()
         style.theme_use('clam')
+        
+        # Force strict color rules to bypass Mac Dark Mode rendering bugs
+        style.configure('TFrame', background=self.bg_color)
+        style.configure('TLabel', background=self.bg_color, foreground="black")
+        style.configure('TEntry', fieldbackground="white", foreground="black", insertcolor="black")
+        style.configure('TRadiobutton', background=self.bg_color, foreground="black")
 
         self.init_db()
 
@@ -216,6 +225,13 @@ class GrowthReportApp:
 
         self.create_widgets()
         self.update_observation_text() 
+
+    def get_btn_style(self, hex_color):
+        """Dynamically styles buttons based on Operating System"""
+        if self.is_mac:
+            return {"highlightbackground": hex_color, "fg": "black"}
+        else:
+            return {"bg": hex_color, "fg": "white"}
 
     def init_db(self):
         db_filename = os.path.basename(self.db_name)
@@ -331,7 +347,7 @@ class GrowthReportApp:
         tk.Label(popup, text=selected_quote, font=("Helvetica", 12, "italic"), fg="white", bg="#2c3e50", wraplength=450, justify="center").pack(pady=(0, 20))
         tk.Label(popup, text="⚠️ Friendly Reminder: Don't forget to run a Daily Backup\nonce you are done with all your entries today!", font=("Helvetica", 11, "bold"), fg="#e67e22", bg="#2c3e50").pack(pady=(0, 20))
         
-        tk.Button(popup, text="Got it, thanks!", font=("Helvetica", 10, "bold"), bg="#2ecc71", fg="white", command=popup.destroy, padx=20, pady=5, relief="groove").pack()
+        tk.Button(popup, text="Got it, thanks!", font=("Helvetica", 10, "bold"), command=popup.destroy, padx=20, pady=5, relief="groove", **self.get_btn_style("#2ecc71")).pack()
 
     def split_master_pdfs(self):
         try: import PyPDF2
@@ -577,7 +593,7 @@ class GrowthReportApp:
         erp_frame = tk.Frame(self.scrollable_frame, bg="#f4f6f7")
         erp_frame.grid(row=1, column=1, sticky="we", pady=2)
         ttk.Entry(erp_frame, textvariable=self.erp_var, width=15).pack(side="left", fill="x", expand=True)
-        tk.Button(erp_frame, text="🔍 Auto-Fill from CSVs", bg="#2980b9", fg="white", font=("Helvetica", 9, "bold"), command=self.search_erp).pack(side="left", padx=(10,0))
+        tk.Button(erp_frame, text="🔍 Auto-Fill from CSVs", font=("Helvetica", 9, "bold"), command=self.search_erp, **self.get_btn_style("#2980b9")).pack(side="left", padx=(10,0))
 
         ttk.Label(self.scrollable_frame, text="Name:").grid(row=2, column=0, sticky="w")
         ttk.Entry(self.scrollable_frame, textvariable=self.name_var, width=30).grid(row=2, column=1, sticky="we", pady=2)
@@ -624,13 +640,13 @@ class GrowthReportApp:
         
         self.row_widgets = []
         for r, (label, val_var, rng_var, stat_var) in enumerate(metrics, start=1):
-            l1 = tk.Label(inner_table, text=label, font=("Helvetica", 10, "bold"), anchor="w", padx=10, pady=8, bg="#f4f6f7")
+            l1 = tk.Label(inner_table, text=label, font=("Helvetica", 10, "bold"), anchor="w", padx=10, pady=8, bg="#f4f6f7", fg="black")
             l1.grid(row=r, column=0, sticky="nsew", padx=0, pady=(0, 1))
-            l2 = tk.Label(inner_table, textvariable=val_var, font=("Helvetica", 10), anchor="w", padx=10, pady=8, bg="#f4f6f7")
+            l2 = tk.Label(inner_table, textvariable=val_var, font=("Helvetica", 10), anchor="w", padx=10, pady=8, bg="#f4f6f7", fg="black")
             l2.grid(row=r, column=1, sticky="nsew", padx=0, pady=(0, 1))
-            l3 = tk.Label(inner_table, textvariable=rng_var, font=("Helvetica", 10), anchor="w", padx=10, pady=8, bg="#f4f6f7")
+            l3 = tk.Label(inner_table, textvariable=rng_var, font=("Helvetica", 10), anchor="w", padx=10, pady=8, bg="#f4f6f7", fg="black")
             l3.grid(row=r, column=2, sticky="nsew", padx=0, pady=(0, 1))
-            l4 = tk.Label(inner_table, textvariable=stat_var, font=("Helvetica", 10, "bold"), width=18, anchor="w", padx=10, pady=8, bg="#f4f6f7")
+            l4 = tk.Label(inner_table, textvariable=stat_var, font=("Helvetica", 10, "bold"), width=18, anchor="w", padx=10, pady=8, bg="#f4f6f7", fg="black")
             l4.grid(row=r, column=3, sticky="nsew", padx=0, pady=(0, 1))
             
             self.row_widgets.append((l1, l2, l3, l4, stat_var))
@@ -654,7 +670,7 @@ class GrowthReportApp:
         for idx, val in enumerate(status_options):
             tk.Radiobutton(h_r_frame, text=val, variable=self.h_obs_status_var, value=val.lower(),
                            bg=gradient_colors[idx], activebackground=gradient_colors[idx],
-                           selectcolor="white", relief="groove", borderwidth=1, tristatevalue="x").pack(side="left", padx=(0, 5), ipadx=3)
+                           selectcolor="white", fg="black", relief="groove", borderwidth=1, tristatevalue="x").pack(side="left", padx=(0, 5), ipadx=3)
 
         w_obs_frame = tk.Frame(self.scrollable_frame, bg="#f4f6f7")
         w_obs_frame.grid(row=12, column=0, columnspan=2, sticky="we", pady=(10, 5))
@@ -670,9 +686,9 @@ class GrowthReportApp:
         for idx, val in enumerate(status_options):
             tk.Radiobutton(w_r_frame, text=val, variable=self.w_obs_status_var, value=val.lower(),
                            bg=gradient_colors[idx], activebackground=gradient_colors[idx],
-                           selectcolor="white", relief="groove", borderwidth=1, tristatevalue="x").pack(side="left", padx=(0, 5), ipadx=3)
+                           selectcolor="white", fg="black", relief="groove", borderwidth=1, tristatevalue="x").pack(side="left", padx=(0, 5), ipadx=3)
 
-        self.obs_text = tk.Text(self.scrollable_frame, height=4, width=75, wrap="word", font=("Helvetica", 10), bg="#ffffff", relief="solid", borderwidth=1)
+        self.obs_text = tk.Text(self.scrollable_frame, height=4, width=75, wrap="word", font=("Helvetica", 10), bg="white", fg="black", insertbackground="black", relief="solid", borderwidth=1)
         self.obs_text.grid(row=13, column=0, columnspan=2, sticky="we", pady=10)
 
         ttk.Label(self.scrollable_frame, text="Overall Health Status", font=("Helvetica", 14, "bold"), foreground="#2c3e50").grid(row=14, column=0, columnspan=2, sticky="w", pady=(15, 5))
@@ -680,11 +696,11 @@ class GrowthReportApp:
         status_frame = tk.Frame(self.scrollable_frame, bg="#f4f6f7")
         status_frame.grid(row=15, column=0, columnspan=2, sticky="we", pady=(0, 5))
         
-        tk.Radiobutton(status_frame, text="Within Range (Green)", variable=self.overall_status_var, value="green", bg="#d4edda", activebackground="#d4edda", selectcolor="white", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
-        tk.Radiobutton(status_frame, text="Borderline (Yellow)", variable=self.overall_status_var, value="yellow", bg="#fff3cd", activebackground="#fff3cd", selectcolor="white", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
-        tk.Radiobutton(status_frame, text="Needs Attention (Red)", variable=self.overall_status_var, value="red", bg="#f8d7da", activebackground="#f8d7da", selectcolor="white", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
+        tk.Radiobutton(status_frame, text="Within Range (Green)", variable=self.overall_status_var, value="green", bg="#d4edda", activebackground="#d4edda", selectcolor="white", fg="black", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
+        tk.Radiobutton(status_frame, text="Borderline (Yellow)", variable=self.overall_status_var, value="yellow", bg="#fff3cd", activebackground="#fff3cd", selectcolor="white", fg="black", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
+        tk.Radiobutton(status_frame, text="Needs Attention (Red)", variable=self.overall_status_var, value="red", bg="#f8d7da", activebackground="#f8d7da", selectcolor="white", fg="black", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
 
-        self.btn_generate = tk.Button(self.scrollable_frame, text="Generate & Build Master Report", font=("Helvetica", 13, "bold"), bg="#2ecc71", fg="white", command=self.trigger_generation)
+        self.btn_generate = tk.Button(self.scrollable_frame, text="Generate & Build Master Report", font=("Helvetica", 13, "bold"), command=self.trigger_generation, **self.get_btn_style("#2ecc71"))
         self.btn_generate.grid(row=16, column=0, columnspan=2, sticky="we", pady=(25, 20), ipady=8)
 
     def search_erp(self):
@@ -842,12 +858,12 @@ class GrowthReportApp:
         img.save(save_path, "PNG")
 
     def trigger_generation(self):
-        self.btn_generate.config(text="Building Master Report... Please Wait", state="disabled", bg="#e67e22")
+        self.btn_generate.config(text="Building Master Report... Please Wait", state="disabled", **self.get_btn_style("#e67e22"))
         self.root.config(cursor="wait")
         self.root.update()
         try: self.generate_document()
         finally:
-            self.btn_generate.config(text="Generate & Build Master Report", state="normal", bg="#2ecc71")
+            self.btn_generate.config(text="Generate & Build Master Report", state="normal", **self.get_btn_style("#2ecc71"))
             self.root.config(cursor="")
 
     def generate_document(self):
@@ -969,7 +985,7 @@ class GrowthReportApp:
                                    (name_str, age_str, gender_val, erp_str, class_str, combined_date, h_val, w_val, b_val, obs_str, context["healthy_height"], context["tbl_height_status"], context["healthy_weight"], context["tbl_weight_status"], context["healthy_bmi"], context["bmi_status"]))
 
             master_msg = ""
-            if HAS_PYPDF:
+            if HAS_DOCX2PDF and HAS_PYPDF:
                 try:
                     master_date_dir = os.path.join(os.getcwd(), "Reports", school_name, "Master Report", date_folder)
                     os.makedirs(master_date_dir, exist_ok=True)
@@ -1034,7 +1050,7 @@ class GrowthReportApp:
                     if os.path.exists(temp_inbody_pdf): os.remove(temp_inbody_pdf)
 
                 except Exception as master_e: master_msg = f"\n\n⚠ Word Doc saved, but Master Report failed to build: {master_e}"
-            else: master_msg = "\n\n⚠ Install 'pypdf' (and 'docx2pdf' if on Windows) to enable instant Master Report building."
+            else: master_msg = "\n\n⚠ Install 'docx2pdf', 'pypdf', and 'pillow' to enable instant Master Report building."
 
             messagebox.showinfo("Success", f"Word Document saved successfully!{master_msg}")
             self.reset_form()

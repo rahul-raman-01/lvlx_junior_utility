@@ -19,10 +19,20 @@ class LVLXLauncher:
         self.root = root
         self.root.title("LVLX School Portal")
         self.root.geometry("450x350")
-        self.root.configure(padx=20, pady=20)
+        
+        # --- CROSS-PLATFORM THEME ENGINE ---
+        self.is_mac = sys.platform == 'darwin'
+        self.bg_color = "#ECECEC" if self.is_mac else "#f4f6f7"
+        self.root.configure(padx=20, pady=20, bg=self.bg_color)
 
         style = ttk.Style()
         style.theme_use('clam')
+        
+        # Force strict color rules to bypass Mac Dark Mode rendering bugs
+        style.configure('TFrame', background=self.bg_color)
+        style.configure('TLabel', background=self.bg_color, foreground="black")
+        style.configure('TEntry', fieldbackground="white", foreground="black", insertcolor="black")
+        style.configure('TCombobox', fieldbackground="white", foreground="black", insertcolor="black")
 
         self.legacy_db_folder = "Databases"
         self.reports_folder = "Reports"
@@ -35,6 +45,13 @@ class LVLXLauncher:
 
         self.create_widgets()
         self.refresh_school_list()
+
+    def get_btn_style(self, hex_color):
+        """Dynamically styles buttons based on Operating System"""
+        if self.is_mac:
+            return {"highlightbackground": hex_color, "fg": "black"}
+        else:
+            return {"bg": hex_color, "fg": "white"}
 
     def create_widgets(self):
         ttk.Label(self.root, text="LVLX Ecosystem Launcher", font=("Helvetica", 16, "bold")).pack(pady=(0, 20))
@@ -56,11 +73,11 @@ class LVLXLauncher:
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(fill="x", pady=10)
 
-        tk.Button(btn_frame, text="📝 Open Data Generator", font=("Helvetica", 11, "bold"), bg="#3498db", fg="white", 
-                  command=lambda: self.launch_app("lvlx_generator.py")).pack(side="left", expand=True, fill="x", padx=(0, 5), ipady=5)
+        tk.Button(btn_frame, text="📝 Open Data Generator", font=("Helvetica", 11, "bold"), 
+                  command=lambda: self.launch_app("lvlx_generator.py"), **self.get_btn_style("#3498db")).pack(side="left", expand=True, fill="x", padx=(0, 5), ipady=5)
         
-        tk.Button(btn_frame, text="📊 Open Command Center", font=("Helvetica", 11, "bold"), bg="#9b59b6", fg="white", 
-                  command=lambda: self.launch_app("lvlx_command_center.py")).pack(side="right", expand=True, fill="x", padx=(5, 0), ipady=5)
+        tk.Button(btn_frame, text="📊 Open Command Center", font=("Helvetica", 11, "bold"), 
+                  command=lambda: self.launch_app("lvlx_command_center.py"), **self.get_btn_style("#9b59b6")).pack(side="right", expand=True, fill="x", padx=(5, 0), ipady=5)
 
     def refresh_school_list(self):
         display_names = set()
@@ -116,18 +133,12 @@ class LVLXLauncher:
         mac_app_name = script_name.replace('.py', '.app')
 
         try:
-            # 1. Safely launch Windows .exe
             if os.name == 'nt' and os.path.exists(exe_name):
                 subprocess.Popen([exe_name, db_path])
-                
-            # 2. Safely launch macOS .app bundle 
             elif sys.platform == 'darwin' and os.path.exists(mac_app_name):
                 subprocess.Popen(["open", "-n", "-a", os.path.abspath(mac_app_name), "--args", db_path])
-                
-            # 3. Fallback to raw .py script
             elif os.path.exists(script_name):
                 subprocess.Popen([sys.executable, script_name, db_path])
-                
             else:
                 messagebox.showerror("Error", f"Could not find {script_name} or {mac_app_name} in this folder.")
                 return
