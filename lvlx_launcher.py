@@ -4,15 +4,23 @@ import os
 import sys
 import subprocess
 
-# --- MAC .APP DIRECTORY FIX ---
+# --- UNIVERSAL DIRECTORY FIX ---
 if getattr(sys, 'frozen', False):
     if sys.platform == 'darwin' and '.app' in sys.executable:
         app_dir = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
         os.chdir(os.path.dirname(app_dir))
     else:
-        os.chdir(os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        if os.path.basename(exe_dir).lower() == "systemfiles":
+            os.chdir(os.path.dirname(exe_dir))
+        else:
+            os.chdir(exe_dir)
 else:
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.basename(script_dir).lower() == "systemfiles":
+        os.chdir(os.path.dirname(script_dir))
+    else:
+        os.chdir(script_dir)
 
 class LVLXLauncher:
     def __init__(self, root):
@@ -47,7 +55,6 @@ class LVLXLauncher:
         self.refresh_school_list()
 
     def get_btn_style(self, hex_color):
-        """Dynamically styles buttons based on Operating System"""
         if self.is_mac:
             return {"highlightbackground": hex_color, "fg": "black"}
         else:
@@ -139,6 +146,9 @@ class LVLXLauncher:
                 subprocess.Popen(["open", "-n", "-a", os.path.abspath(mac_app_name), "--args", db_path])
             elif os.path.exists(script_name):
                 subprocess.Popen([sys.executable, script_name, db_path])
+            elif os.path.exists(os.path.join("SystemFiles", script_name)):
+                # Fallback if raw python files are kept safely inside SystemFiles
+                subprocess.Popen([sys.executable, os.path.join("SystemFiles", script_name), db_path])
             else:
                 messagebox.showerror("Error", f"Could not find {script_name} or {mac_app_name} in this folder.")
                 return

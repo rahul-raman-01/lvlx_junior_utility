@@ -16,19 +16,28 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 
-# --- MAC .APP DIRECTORY FIX ---
+# --- UNIVERSAL DIRECTORY FIX ---
 if getattr(sys, 'frozen', False):
     if sys.platform == 'darwin' and '.app' in sys.executable:
         app_dir = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
         os.chdir(os.path.dirname(app_dir))
     else:
-        os.chdir(os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        if os.path.basename(exe_dir).lower() == "systemfiles":
+            os.chdir(os.path.dirname(exe_dir))
+        else:
+            os.chdir(exe_dir)
 else:
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.basename(script_dir).lower() == "systemfiles":
+        os.chdir(os.path.dirname(script_dir))
+    else:
+        os.chdir(script_dir)
 
 warnings.filterwarnings("ignore", message="Tight layout not applied")
 
@@ -103,12 +112,29 @@ class LVLXCommandCenter:
         self.current_erp = None 
         self._autosave_timer = None
         
-        if len(sys.argv) > 1:
-            passed_db_path = sys.argv[1]
-        else:
+        # --- DYNAMIC ROOT DIRECTORY FIX ---
+        passed_db_path = None
+        for arg in sys.argv[1:]:
+            if arg.endswith('.db'):
+                passed_db_path = os.path.abspath(arg)
+                break
+                
+        if not passed_db_path:
             self.root.withdraw() 
             messagebox.showerror("Access Denied", "Direct access is disabled.\n\nPlease launch this tool through the LVLX School Portal.")
             os._exit(0)
+
+        abs_db_path = os.path.abspath(passed_db_path)
+        parent_dir = os.path.dirname(abs_db_path)
+        parent_name = os.path.basename(parent_dir)
+        
+        if parent_name == "database":
+            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(parent_dir)))
+            os.chdir(root_dir)
+        elif parent_name == "Databases":
+            root_dir = os.path.dirname(parent_dir)
+            os.chdir(root_dir)
+        # ----------------------------------
 
         raw_name = os.path.basename(passed_db_path).replace('.db', '')
         self.display_school_name = raw_name.replace('_', ' ').replace('-', ' ')
@@ -126,12 +152,20 @@ class LVLXCommandCenter:
 
         self.root.title(f"LVLX Command Center - {self.display_school_name}")
         self.root.geometry("1100x750")
-        self.root.configure(padx=10, pady=10)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # --- CROSS-PLATFORM THEME ENGINE ---
+        self.is_mac = sys.platform == 'darwin'
+        self.bg_color = "#f4f6f7"
+        self.root.configure(padx=10, pady=10, bg=self.bg_color) 
 
-        ttk.Style().theme_use('clam')
-        ttk.Style().configure("Treeview.Heading", font=("Helvetica", 10, "bold"), background="#ecf0f1", foreground="#2c3e50")
-        ttk.Style().configure("Treeview", rowheight=25, font=("Helvetica", 10))
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        style.configure('TFrame', background=self.bg_color)
+        style.configure('TLabel', background=self.bg_color, foreground="black")
+        style.configure('TEntry', fieldbackground="white", foreground="black", insertcolor="black")
+        style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"), background="#ecf0f1", foreground="#2c3e50")
+        style.configure("Treeview", rowheight=25, font=("Helvetica", 10))
 
         if not os.path.exists(self.db_name):
             messagebox.showwarning("Warning", "No database found! Run the generator to collect data.")
@@ -139,11 +173,18 @@ class LVLXCommandCenter:
         self.create_widgets()
         self.refresh_all_data()
 
+    def get_btn_style(self, hex_color):
+        """Dynamically styles buttons based on Operating System"""
+        if self.is_mac:
+            return {"highlightbackground": hex_color, "fg": "black"}
+        else:
+            return {"bg": hex_color, "fg": "white"}
+
     def create_widgets(self):
         header_frame = ttk.Frame(self.root)
         header_frame.pack(fill="x", pady=(0, 10))
         ttk.Label(header_frame, text=f"📊 Analytics: {self.display_school_name}", font=("Helvetica", 18, "bold"), foreground="#2980b9").pack(side="left", padx=10)
-        tk.Button(header_frame, text="🔄 Refresh All Data", font=("Helvetica", 10, "bold"), bg="#2ecc71", fg="white", command=self.refresh_all_data).pack(side="right", padx=10, ipadx=10, ipady=3)
+        tk.Button(header_frame, text="🔄 Refresh All Data", font=("Helvetica", 10, "bold"), command=self.refresh_all_data, **self.get_btn_style("#2ecc71")).pack(side="right", padx=10, ipadx=10, ipady=3)
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
@@ -171,9 +212,9 @@ class LVLXCommandCenter:
         self.delete_erp_var = tk.StringVar()
         self.delete_erp_var.trace_add("write", self.filter_treeview)
         ttk.Entry(del_frame, textvariable=self.delete_erp_var, width=15).pack(side="left", padx=(0, 10))
-        tk.Button(del_frame, text="🗑️ Delete Selected Row", font=("Helvetica", 9, "bold"), bg="#e74c3c", fg="white", command=self.delete_record).pack(side="left", ipadx=5)
+        tk.Button(del_frame, text="🗑️ Delete Selected Row", font=("Helvetica", 9, "bold"), command=self.delete_record, **self.get_btn_style("#e74c3c")).pack(side="left", ipadx=5)
 
-        tk.Button(c_frame, text="💾 Export CSV", font=("Helvetica", 10, "bold"), bg="#3498db", fg="white", command=self.export_csv).pack(side="right", ipadx=5, ipady=2)
+        tk.Button(c_frame, text="💾 Export CSV", font=("Helvetica", 10, "bold"), command=self.export_csv, **self.get_btn_style("#3498db")).pack(side="right", ipadx=5, ipady=2)
 
         self.cols_config = [
             ("ID", 40, "center"), ("Timestamp", 130, "center"), ("Name", 130, "w"),
@@ -594,13 +635,13 @@ class LVLXCommandCenter:
                 self.review_cards.remove(card)
             self.trigger_autosave()
 
-        btn_crit = tk.Button(top_row, font=("Helvetica", 8, "bold"), fg="white", command=toggle_crit)
+        btn_crit = tk.Button(top_row, font=("Helvetica", 8, "bold"), command=toggle_crit, **self.get_btn_style("#95a5a6"))
         btn_crit.pack(side="left", padx=2)
 
-        btn_done = tk.Button(top_row, font=("Helvetica", 8, "bold"), fg="white", command=toggle_done)
+        btn_done = tk.Button(top_row, font=("Helvetica", 8, "bold"), command=toggle_done, **self.get_btn_style("#95a5a6"))
         btn_done.pack(side="left", padx=2)
         
-        tk.Button(top_row, text="X", font=("Helvetica", 8, "bold"), bg="#e74c3c", fg="white", command=delete_card).pack(side="left", padx=(2,0))
+        tk.Button(top_row, text="X", font=("Helvetica", 8, "bold"), command=delete_card, **self.get_btn_style("#e74c3c")).pack(side="left", padx=(2,0))
         
         content_txt = tk.Text(card_frame, height=4, width=25, font=("Helvetica", 10), wrap="word", relief="flat")
         content_txt.pack(fill="both", expand=True, padx=5, pady=(0, 5))
@@ -655,12 +696,12 @@ class LVLXCommandCenter:
                     sports_updated = str(row[0]).split('.')[0]
         except sqlite3.OperationalError: pass
 
-        tk.Button(inner_frame, text="Create Regular Diet Plan", font=("Helvetica", 13, "bold"), bg="#bdc3c7", fg="white", state="disabled", width=40).pack(pady=15, ipady=8)
+        tk.Button(inner_frame, text="Create Regular Diet Plan", font=("Helvetica", 13, "bold"), state="disabled", width=40, **self.get_btn_style("#bdc3c7")).pack(pady=15, ipady=8)
         
         sports_btn_text = f"✏️ Edit Sports Plan (Saved: {sports_updated})" if has_sports_plan else "Create Sports Diet Plan"
         sports_btn_bg = "#27ae60" if has_sports_plan else "#e67e22"
 
-        tk.Button(inner_frame, text=sports_btn_text, font=("Helvetica", 13, "bold"), bg=sports_btn_bg, fg="white", width=40, command=lambda: self.show_sports_plan_form(parent_frame, erp, name, age, gender)).pack(pady=15, ipady=8)
+        tk.Button(inner_frame, text=sports_btn_text, font=("Helvetica", 13, "bold"), width=40, command=lambda: self.show_sports_plan_form(parent_frame, erp, name, age, gender), **self.get_btn_style(sports_btn_bg)).pack(pady=15, ipady=8)
 
     def show_sports_plan_form(self, parent_frame, erp, name, age, gender):
         for widget in parent_frame.winfo_children():
@@ -673,7 +714,7 @@ class LVLXCommandCenter:
         toolbar_frame = tk.Frame(parent_frame, bg="#ecf0f1", bd=1, relief="solid")
         toolbar_frame.pack(side="top", fill="x")
         
-        tk.Button(toolbar_frame, text="← Back", font=("Helvetica", 9, "bold"), bg="#95a5a6", fg="white", command=lambda: self.setup_diet_planning_tab(parent_frame, erp, name, age, gender)).pack(side="left", padx=10, pady=5)
+        tk.Button(toolbar_frame, text="← Back", font=("Helvetica", 9, "bold"), command=lambda: self.setup_diet_planning_tab(parent_frame, erp, name, age, gender), **self.get_btn_style("#95a5a6")).pack(side="left", padx=10, pady=5)
         ttk.Separator(toolbar_frame, orient='vertical').pack(side="left", fill="y", padx=5)
         
         # Core Styles
@@ -756,7 +797,7 @@ class LVLXCommandCenter:
         sc_canvas.pack(side="left", fill="both", expand=True, pady=5, padx=5)
         sc_scrollbar.pack(side="right", fill="y", pady=5)
         
-        tk.Button(sticky_header, text=" + ", font=("Helvetica", 10, "bold"), bg="#2980b9", fg="white", command=lambda: self.create_review_card(sticky_scroll_frame)).pack(side="right")
+        tk.Button(sticky_header, text=" + ", font=("Helvetica", 10, "bold"), command=lambda: self.create_review_card(sticky_scroll_frame), **self.get_btn_style("#2980b9")).pack(side="right")
 
         initial_load_erp = self.current_erp
         self.current_erp = None 
@@ -807,7 +848,7 @@ class LVLXCommandCenter:
         for label_text, key, height in fields:
             ttk.Label(scrollable_frame, text=label_text + ":", font=("Helvetica", 10, "bold"), foreground="#2c3e50", background="#f4f6f7").grid(row=row_idx, column=0, sticky="nw", pady=8)
             
-            txt_widget = tk.Text(scrollable_frame, height=height, width=65, font=("Helvetica", 10), wrap="word", relief="solid", borderwidth=1, bg="#ffffff")
+            txt_widget = tk.Text(scrollable_frame, height=height, width=65, font=("Helvetica", 10), wrap="word", relief="solid", borderwidth=1, bg="white", fg="black", insertbackground="black")
             txt_widget.grid(row=row_idx, column=1, sticky="w", pady=8, padx=15)
             
             txt_widget.tag_configure("bold_style", font=("Helvetica", 10, "bold"))
@@ -827,7 +868,7 @@ class LVLXCommandCenter:
             row_idx += 1
 
         btn_text = "Update & Export Sports Plan (PDF)" if existing_plan else "Save & Export Sports Plan (PDF)"
-        tk.Button(scrollable_frame, text=btn_text, font=("Helvetica", 12, "bold"), bg="#2ecc71", fg="white", command=lambda: self.generate_sports_plan(erp, name, age, gender)).grid(row=row_idx, column=0, columnspan=2, pady=30, ipadx=20, ipady=8)
+        tk.Button(scrollable_frame, text=btn_text, font=("Helvetica", 12, "bold"), command=lambda: self.generate_sports_plan(erp, name, age, gender), **self.get_btn_style("#2ecc71")).grid(row=row_idx, column=0, columnspan=2, pady=30, ipadx=20, ipady=8)
 
     def generate_sports_plan(self, erp, student_name, age, gender):
         if not HAS_PPTX:
@@ -1087,7 +1128,7 @@ class LVLXCommandCenter:
         diet_action_frame.pack(fill="x", pady=15, padx=15)
         
         ttk.Label(diet_action_frame, text="Upload and extract data from a Jotform Dietary Recall PDF.", foreground="grey").pack(side="left")
-        tk.Button(diet_action_frame, text="📄 Import Dietary PDF", font=("Helvetica", 10, "bold"), bg="#8e44ad", fg="white", command=lambda: self.import_dietary_recall(erp, name, top)).pack(side="right", ipadx=10, ipady=3)
+        tk.Button(diet_action_frame, text="📄 Import Dietary PDF", font=("Helvetica", 10, "bold"), command=lambda: self.import_dietary_recall(erp, name, top), **self.get_btn_style("#8e44ad")).pack(side="right", ipadx=10, ipady=3)
         
         try:
             with sqlite3.connect(self.db_name) as conn:
@@ -1238,7 +1279,7 @@ class LVLXCommandCenter:
             ttk.Entry(date_frame, textvariable=self.target_date_var, width=15).pack(side="left", padx=10)
             ttk.Label(date_frame, text="*(Tip: Install 'tkcalendar' for a visual date picker)*", font=("Helvetica", 8, "italic"), foreground="grey").pack(side="left")
 
-        self.btn_send_reports = tk.Button(action_frame, text="🚀 Send Master Reports for Target Date", font=("Helvetica", 11, "bold"), bg="#8e44ad", fg="white", command=self.start_distribution_thread)
+        self.btn_send_reports = tk.Button(action_frame, text="🚀 Send Master Reports for Target Date", font=("Helvetica", 11, "bold"), command=self.start_distribution_thread, **self.get_btn_style("#8e44ad"))
         self.btn_send_reports.pack(anchor="w", ipadx=15, ipady=5)
 
         self.progress_var = tk.DoubleVar()
@@ -1346,11 +1387,11 @@ class LVLXCommandCenter:
             self.current_log_file = None
             return
 
-        target_erps = [f for f in os.listdir(daily_master_dir) if os.path.isdir(os.path.join(daily_master_dir, f))]
-        total_folders = len(target_erps)
+        pdf_files = [f for f in os.listdir(daily_master_dir) if f.startswith("LVLX_Master_Report_") and f.endswith(".pdf")]
+        total_files = len(pdf_files)
         
-        if total_folders == 0:
-            self.log_to_console(f"ERROR: Date folder {target_date} is empty.")
+        if total_files == 0:
+            self.log_to_console(f"ERROR: Date folder '{target_date}' exists but contains no Master Reports.")
             self.root.after(0, lambda: self.btn_send_reports.config(state="normal"))
             self.current_log_file = None
             return
@@ -1371,8 +1412,9 @@ class LVLXCommandCenter:
         success_count = 0
         skip_count = 0
         
-        for idx, erp in enumerate(target_erps, start=1):
-            self.update_progress(idx, total_folders, f"Processing {idx}/{total_folders} - ERP: {erp}")
+        for idx, filename in enumerate(pdf_files, start=1):
+            erp = filename.replace("LVLX_Master_Report_", "").replace(".pdf", "")
+            self.update_progress(idx, total_files, f"Processing {idx}/{total_files} - ERP: {erp}")
             
             target_email = contact_dict.get(erp)
             if not target_email:
@@ -1380,13 +1422,8 @@ class LVLXCommandCenter:
                 skip_count += 1
                 continue
                 
-            student_dir = os.path.join(daily_master_dir, erp)
-            files_to_attach = [os.path.join(student_dir, f) for f in os.listdir(student_dir) if os.path.isfile(os.path.join(student_dir, f))]
-            
-            if not files_to_attach:
-                self.log_to_console(f"[SKIPPED] ERP {erp} - Folder is empty. No files to attach.")
-                skip_count += 1
-                continue
+            file_path = os.path.join(daily_master_dir, filename)
+            files_to_attach = [file_path]
 
             try:
                 msg = MIMEMultipart()
@@ -1394,22 +1431,32 @@ class LVLXCommandCenter:
                 msg['To'] = target_email
                 msg['Subject'] = "Your Child’s Health Snapshot is Ready – Discover What’s Next"
                 
-                body = """<html>
+                body = f"""<html>
                 <body>
                     <p>Dear Parent,</p>
                     <p>We’re pleased to share your child’s Health & Body Composition Report.</p>
                     <p>It offers key insights into their growth, fitness, and overall well-being.</p>
                     <p>For deeper analysis and personalized guidance, explore our premium program designed to support your child’s health journey.</p>
-                    <p>Warm regards,<br>Nahar International & LVL X - Nutrition Amplified</p>
+                    <p>Warm regards,<br>{self.display_school_name} & LVL X Junior<br>+91 9819300066</p>
+                    <br>
+                    <img src="cid:lvlx_logo" alt="LVL X Logo" width="180">
                 </body>
                 </html>"""
                 
                 msg.attach(MIMEText(body, 'html'))
 
-                for file_path in files_to_attach:
-                    with open(file_path, "rb") as f:
-                        part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
-                    part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+                logo_path = os.path.join(os.getcwd(), "template", "lvlx_logo.png")
+                if os.path.exists(logo_path):
+                    with open(logo_path, "rb") as img_file:
+                        logo_img = MIMEImage(img_file.read())
+                        logo_img.add_header('Content-ID', '<lvlx_logo>')
+                        logo_img.add_header('Content-Disposition', 'inline')
+                        msg.attach(logo_img)
+
+                for f_path in files_to_attach:
+                    with open(f_path, "rb") as f:
+                        part = MIMEApplication(f.read(), Name=os.path.basename(f_path))
+                    part['Content-Disposition'] = f'attachment; filename="{os.path.basename(f_path)}"'
                     msg.attach(part)
 
                 server.send_message(msg)
@@ -1425,7 +1472,7 @@ class LVLXCommandCenter:
 
         self.log_to_console("="*40)
         self.log_to_console(f"DISTRIBUTION COMPLETE. Sent: {success_count}, Skipped: {skip_count}")
-        self.update_progress(total_folders, total_folders, f"Finished! Sent: {success_count} | Skipped: {skip_count}")
+        self.update_progress(total_files, total_files, f"Finished! Sent: {success_count} | Skipped: {skip_count}")
         self.root.after(0, lambda: self.btn_send_reports.config(state="normal"))
         self.current_log_file = None 
 
@@ -1479,11 +1526,11 @@ class LVLXCommandCenter:
             self.current_log_file = None
             return
 
-        target_erps = [f for f in os.listdir(daily_master_dir) if os.path.isdir(os.path.join(daily_master_dir, f))]
-        total_folders = len(target_erps)
+        pdf_files = [f for f in os.listdir(daily_master_dir) if f.startswith("LVLX_Master_Report_") and f.endswith(".pdf")]
+        total_files = len(pdf_files)
         
-        if total_folders == 0:
-            self.log_to_console(f"ERROR: Date folder {target_date} is empty.")
+        if total_files == 0:
+            self.log_to_console(f"ERROR: Date folder '{target_date}' exists but contains no Master Reports.")
             self.root.after(0, lambda: self.btn_send_reports.config(state="normal"))
             self.current_log_file = None
             return
@@ -1495,8 +1542,9 @@ class LVLXCommandCenter:
         send_url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
         headers = {"Authorization": f"Bearer {token}"}
         
-        for idx, erp in enumerate(target_erps, start=1):
-            self.update_progress(idx, total_folders, f"Processing {idx}/{total_folders} - ERP: {erp}")
+        for idx, filename in enumerate(pdf_files, start=1):
+            erp = filename.replace("LVLX_Master_Report_", "").replace(".pdf", "")
+            self.update_progress(idx, total_files, f"Processing {idx}/{total_files} - ERP: {erp}")
             
             target_phone = contact_dict.get(erp)
             if not target_phone:
@@ -1504,21 +1552,16 @@ class LVLXCommandCenter:
                 skip_count += 1
                 continue
                 
-            student_dir = os.path.join(daily_master_dir, erp)
-            files_to_attach = [os.path.join(student_dir, f) for f in os.listdir(student_dir) if os.path.isfile(os.path.join(student_dir, f))]
-            
-            if not files_to_attach:
-                self.log_to_console(f"[SKIPPED] ERP {erp} - Folder is empty.")
-                skip_count += 1
-                continue
+            file_path = os.path.join(daily_master_dir, filename)
+            files_to_attach = [file_path]
 
             try:
                 self.log_to_console(f"[PREPARING] Uploading final PDF for ERP {erp} to Meta Servers...")
                 
-                for file_path in files_to_attach:
-                    file_name = os.path.basename(file_path)
+                for f_path in files_to_attach:
+                    file_name = os.path.basename(f_path)
                     
-                    with open(file_path, "rb") as f:
+                    with open(f_path, "rb") as f:
                         files = {"file": (file_name, f, "application/pdf")}
                         data = {"messaging_product": "whatsapp", "type": "application/pdf"}
                         
@@ -1570,7 +1613,7 @@ class LVLXCommandCenter:
 
         self.log_to_console("="*40)
         self.log_to_console(f"WHATSAPP DISTRIBUTION COMPLETE. Sent: {success_count}, Skipped: {skip_count}")
-        self.update_progress(total_folders, total_folders, f"Finished! Sent: {success_count} | Skipped: {skip_count}")
+        self.update_progress(total_files, total_files, f"Finished! Sent: {success_count} | Skipped: {skip_count}")
         self.root.after(0, lambda: self.btn_send_reports.config(state="normal"))
         self.current_log_file = None 
 
@@ -1585,7 +1628,7 @@ class LVLXCommandCenter:
         cb.pack(side="left", padx=10)
         cb.bind("<<ComboboxSelected>>", lambda e: self.update_analytics_view())
 
-        tk.Button(filter_frame, text="📸 Export All Charts to Folder", font=("Helvetica", 9, "bold"), bg="#8e44ad", fg="white", command=self.export_charts).pack(side="right", padx=10)
+        tk.Button(filter_frame, text="📸 Export All Charts to Folder", font=("Helvetica", 9, "bold"), command=self.export_charts, **self.get_btn_style("#8e44ad")).pack(side="right", padx=10)
 
         self.kpi_frame = ttk.LabelFrame(self.tab_analytics, text=" Key Performance Indicators (KPIs) ", padding=10)
         self.kpi_frame.pack(fill="x", pady=(10, 10), padx=10)
@@ -1669,12 +1712,31 @@ class LVLXCommandCenter:
 
         self.draw_chart(metric)
 
-    def _add_tooltips(self, ax, rects_list):
+    def _add_tooltips(self, ax, rects_list, fs=9):
         for rects in rects_list: 
-            ax.bar_label(rects, label_type='center', color='white', padding=3, fmt='%d', fontweight='bold')
+            ax.bar_label(rects, label_type='center', color='white', padding=3, fmt='%d', fontweight='bold', fontsize=fs)
 
     def draw_chart(self, metric):
-        fig = plt.figure(figsize=(10, 6), dpi=100)
+        if self.is_mac:
+            c_fig_size = (7.5, 4.5) 
+            c_dpi = 80
+            c_title_fs = 12
+            c_label_fs = 8
+            c_pie_fs = 7
+            c_pie_title_fs = 10
+            c_hspace = 0.4
+            c_wspace = 0.3
+        else:
+            c_fig_size = (10, 6)
+            c_dpi = 100
+            c_title_fs = 14
+            c_label_fs = 9
+            c_pie_fs = 8
+            c_pie_title_fs = 11
+            c_hspace = 0.3
+            c_wspace = 0.2
+
+        fig = plt.figure(figsize=c_fig_size, dpi=c_dpi)
 
         if metric == "Overview":
             axes = [fig.add_subplot(221), fig.add_subplot(222), fig.add_subplot(223), fig.add_subplot(224)]
@@ -1695,18 +1757,22 @@ class LVLXCommandCenter:
                         colors=colors_f, 
                         autopct=lambda p: f"{p:.1f}%\n({int(round(p * sum(sizes_f) / 100.0))})", 
                         startangle=90, 
-                        textprops={'fontweight': 'bold', 'fontsize': 8}
+                        textprops={'fontweight': 'bold', 'fontsize': c_pie_fs}
                     )
                     for i, autotext in enumerate(autotexts): 
                         autotext.set_color('black' if labels_f[i] == 'Borderline' else 'white')
                 else: 
-                    ax.text(0.5, 0.5, 'No Data', ha='center', va='center', fontweight='bold', color="#7f8c8d")
+                    ax.text(0.5, 0.5, 'No Data', ha='center', va='center', fontweight='bold', color="#7f8c8d", fontsize=c_label_fs)
                     
-                ax.set_title(title, fontweight='bold', pad=8, fontsize=11)
+                ax.set_title(title, fontweight='bold', pad=8, fontsize=c_pie_title_fs)
                 ax.axis('equal')
 
-            fig.suptitle('School Health Overview: Height & Weight by Gender', fontweight='bold', fontsize=14)
-            fig.subplots_adjust(top=0.90, bottom=0.05, hspace=0.3)
+            fig.suptitle('School Health Overview: Height & Weight by Gender', fontweight='bold', fontsize=c_title_fs)
+            
+            if self.is_mac:
+                fig.subplots_adjust(top=0.85, bottom=0.05, hspace=c_hspace, wspace=c_wspace)
+            else:
+                fig.subplots_adjust(top=0.90, bottom=0.05, hspace=c_hspace)
 
         elif metric == "Demographics":
             ax = fig.add_subplot(111)
@@ -1717,9 +1783,11 @@ class LVLXCommandCenter:
             r1 = ax.bar(x, boys, width, label='Boys', color='#3498db')
             r2 = ax.bar(x, girls, width, bottom=boys, label='Girls', color='#fd79a8')
 
-            ax.set_title('Student Demographics by Class', fontweight='bold', pad=15)
-            self._add_tooltips(ax, [r1, r2])
-            ax.set_xticks(x); ax.set_xticklabels(classes, fontweight='bold'); ax.set_ylabel('Number of Students', fontweight='bold')
+            ax.set_title('Student Demographics by Class', fontweight='bold', pad=15, fontsize=c_title_fs)
+            self._add_tooltips(ax, [r1, r2], c_label_fs)
+            ax.set_xticks(x); ax.set_xticklabels(classes, fontweight='bold', fontsize=c_label_fs)
+            ax.set_ylabel('Number of Students', fontweight='bold', fontsize=c_label_fs)
+            ax.legend(fontsize=c_label_fs)
             fig.tight_layout()
 
         else:
@@ -1736,10 +1804,15 @@ class LVLXCommandCenter:
             r3_m = ax.bar(x + width, na_m, width, color='#d35400', label='Boys (Needs Attention)')
             r3_f = ax.bar(x + width, na_f, width, bottom=na_m, color='#e67e22', label='Girls (Needs Attention)')
 
-            ax.set_title(f'{metric} Segregation by Class', fontweight='bold', pad=15)
-            self._add_tooltips(ax, [r1_m, r1_f, r2_m, r2_f, r3_m, r3_f])
-            ax.set_xticks(x); ax.set_xticklabels(classes, fontweight='bold'); ax.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=9); ax.set_ylabel('Number of Students', fontweight='bold')
+            ax.set_title(f'{metric} Segregation by Class', fontweight='bold', pad=15, fontsize=c_title_fs)
+            self._add_tooltips(ax, [r1_m, r1_f, r2_m, r2_f, r3_m, r3_f], c_label_fs)
+            ax.set_xticks(x); ax.set_xticklabels(classes, fontweight='bold', fontsize=c_label_fs)
+            ax.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=c_label_fs)
+            ax.set_ylabel('Number of Students', fontweight='bold', fontsize=c_label_fs)
+            
             fig.tight_layout()
+            if self.is_mac:
+                fig.subplots_adjust(right=0.70) 
 
         canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
         canvas.draw()
@@ -1774,12 +1847,6 @@ class LVLXCommandCenter:
                     'Girls Weight': {'Within Range': 0, 'Borderline': 0, 'Needs Attention': 0}
                 }
 
-                def map_to_3_cat(detailed_stat):
-                    ds = str(detailed_stat).lower()
-                    if "normal" in ds: return "Within Range"
-                    elif "slightly" in ds: return "Borderline"
-                    else: return "Needs Attention"
-
                 cursor.execute("SELECT class_grade, age, gender, height, weight, bmi FROM growth_reports WHERE class_grade != '' AND age != ''")
                 for cls, age_str, gender, h, w, bmi in cursor.fetchall():
                     try: age = int(str(age_str).split('/')[0])
@@ -1788,20 +1855,17 @@ class LVLXCommandCenter:
                     if cls not in self.cat_stats['BMI']: continue
                     
                     if bmi: 
-                        b_cat_raw = categorize_metric('BMI', float(bmi), age, gender)
-                        b_cat = map_to_3_cat(b_cat_raw)
+                        b_cat = categorize_metric('BMI', float(bmi), age, gender)
                         self.cat_stats['BMI'][cls][b_cat][gender] += 1
                         
                     if h: 
-                        h_cat_raw = categorize_metric('Height', float(h), age, gender)
-                        h_cat = map_to_3_cat(h_cat_raw)
+                        h_cat = categorize_metric('Height', float(h), age, gender)
                         self.cat_stats['Height'][cls][h_cat][gender] += 1
                         if gender == 'M': self.overview_stats_4q['Boys Height'][h_cat] += 1
                         elif gender == 'F': self.overview_stats_4q['Girls Height'][h_cat] += 1
                         
                     if w: 
-                        w_cat_raw = categorize_metric('Weight', float(w), age, gender)
-                        w_cat = map_to_3_cat(w_cat_raw)
+                        w_cat = categorize_metric('Weight', float(w), age, gender)
                         self.cat_stats['Weight'][cls][w_cat][gender] += 1
                         if gender == 'M': self.overview_stats_4q['Boys Weight'][w_cat] += 1
                         elif gender == 'F': self.overview_stats_4q['Girls Weight'][w_cat] += 1
@@ -1817,106 +1881,6 @@ class LVLXCommandCenter:
 
         except sqlite3.Error as e:
             messagebox.showerror("Database Error", str(e))
-
-    def split_master_pdfs(self):
-        try: import PyPDF2
-        except ImportError: return messagebox.showerror("Missing Library", "The 'PyPDF2' library is required to run your specific splitting logic.\n\nPlease open your terminal and run:\n pip install PyPDF2")
-
-        db_filename = os.path.basename(self.db_name)
-        school_name = os.path.splitext(db_filename)[0]
-        base_reports_dir = os.path.join(os.getcwd(), "Reports")
-        school_dir = os.path.join(base_reports_dir, school_name)
-        master_dir = os.path.join(school_dir, "inbody_master")
-        output_dir = os.path.join(school_dir, "inbody_report")
-
-        if not os.path.exists(master_dir):
-            os.makedirs(master_dir, exist_ok=True)
-            return messagebox.showinfo("Folder Created", f"Created a new folder at:\n{master_dir}\n\nPlease drop your bulk/multi-page InBody PDFs into this folder and run the tool again.")
-
-        pdf_files = [os.path.join(master_dir, f) for f in os.listdir(master_dir) if f.lower().endswith('.pdf')]
-        if not pdf_files: return messagebox.showwarning("No Files Found", f"No PDF files were found inside:\n{master_dir}")
-
-        if len(pdf_files) > 15:
-            display_list = "\n".join([os.path.basename(f) for f in pdf_files[:15]]) + f"\n... and {len(pdf_files)-15} more files."
-        else:
-            display_list = "\n".join([os.path.basename(f) for f in pdf_files])
-
-        if not messagebox.askyesno("Confirm Split", f"Found {len(pdf_files)} Master PDF(s):\n\n{display_list}\n\nDo you want to split ALL of these into individual ERP files now?"): return
-
-        os.makedirs(output_dir, exist_ok=True)
-        
-        progress_win = tk.Toplevel(self.root)
-        progress_win.title("Splitting PDFs...")
-        progress_win.geometry("420x160")
-        progress_win.transient(self.root)
-        progress_win.grab_set()
-
-        progress_win.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (420 // 2)
-        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (160 // 2)
-        progress_win.geometry(f"+{x}+{y}")
-
-        ttk.Label(progress_win, text="Processing and Splitting Master Reports...", font=("Helvetica", 11, "bold")).pack(pady=(20, 10))
-        
-        progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(progress_win, variable=progress_var, maximum=100, length=320)
-        progress_bar.pack(pady=5)
-        
-        status_lbl = ttk.Label(progress_win, text="Calculating total pages...", font=("Helvetica", 9))
-        status_lbl.pack(pady=5)
-
-        self.root.config(cursor="wait")
-        self.root.update()
-
-        generated_count = 0
-        try:
-            total_pages = 0
-            pdf_readers = []
-            for input_file in pdf_files:
-                reader = PyPDF2.PdfReader(input_file)
-                total_pages += len(reader.pages)
-                pdf_readers.append((input_file, reader))
-
-            if total_pages == 0:
-                progress_win.destroy()
-                self.root.config(cursor="")
-                return messagebox.showwarning("No Pages", "The selected PDF files appear to be empty.")
-
-            progress_bar["maximum"] = total_pages
-            current_page_idx = 0
-
-            for input_file, pdf_reader in pdf_readers:
-                for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    page_text = page.extract_text()
-                    match = re.search(r'Test Date / Time(?:\[.*?\])?\n([A-Za-z0-9_-]+)', page_text)
-                    if match: page_id = match.group(1).strip()
-                    else:
-                        lines = page_text.split('\n')
-                        if len(lines) > 1 and 'ID' in lines[0]: page_id = lines[1].strip().split()[0]
-                        else: page_id = f"unknown_id_page_{generated_count+1}"
-                            
-                    output_filepath = os.path.join(output_dir, f"{page_id}.pdf")
-                    pdf_writer = PyPDF2.PdfWriter()
-                    pdf_writer.add_page(page)
-                    with open(output_filepath, 'wb') as output_file: pdf_writer.write(output_file)
-                    
-                    generated_count += 1
-                    current_page_idx += 1
-                    
-                    progress_var.set(current_page_idx)
-                    status_lbl.config(text=f"Exporting {page_id}.pdf ({current_page_idx}/{total_pages})")
-                    progress_win.update()
-
-            progress_win.destroy()
-            messagebox.showinfo("Success", f"Extraction Complete! 🎉\n\nSuccessfully split and saved {generated_count} individual reports directly into the 'inbody_report' folder.")
-            
-        except Exception as e: 
-            if progress_win.winfo_exists():
-                progress_win.destroy()
-            messagebox.showerror("Splitting Error", f"An error occurred while splitting the PDFs:\n{str(e)}")
-        finally: 
-            self.root.config(cursor="")
 
     def on_closing(self):
         try:

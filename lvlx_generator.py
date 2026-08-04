@@ -12,15 +12,23 @@ from datetime import datetime
 from docxtpl import DocxTemplate, InlineImage, RichText
 from docx.shared import Mm
 
-# --- MAC .APP DIRECTORY FIX ---
+# --- UNIVERSAL DIRECTORY FIX ---
 if getattr(sys, 'frozen', False):
     if sys.platform == 'darwin' and '.app' in sys.executable:
         app_dir = os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))
         os.chdir(os.path.dirname(app_dir))
     else:
-        os.chdir(os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        if os.path.basename(exe_dir).lower() == "systemfiles":
+            os.chdir(os.path.dirname(exe_dir))
+        else:
+            os.chdir(exe_dir)
 else:
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.basename(script_dir).lower() == "systemfiles":
+        os.chdir(os.path.dirname(script_dir))
+    else:
+        os.chdir(script_dir)
 
 # --- PDF & Image Conversion Libraries ---
 try:
@@ -557,7 +565,6 @@ class GrowthReportApp:
                     sys.stdout = old_stdout
                     sys.stderr = old_stderr
         elif sys.platform == 'darwin':
-            # Cross-Platform: Natively run Mac MS Word via AppleScript
             import subprocess
             script = f'''
             tell application "Microsoft Word"
@@ -888,6 +895,20 @@ class GrowthReportApp:
         try: h_val, w_val = float(h_str), float(w_str)
         except ValueError: return messagebox.showerror("Input Error", "Height and Weight must be valid numbers.")
 
+        db_filename = os.path.basename(self.db_name)
+        school_name = os.path.splitext(db_filename)[0]
+        
+        inbody_dir = os.path.join(os.getcwd(), "Reports", school_name, "inbody_report")
+        inbody_found = False
+        if os.path.exists(inbody_dir):
+            for f in os.listdir(inbody_dir):
+                if os.path.splitext(f)[0].lower() == erp_str.lower():
+                    inbody_found = True
+                    break
+                    
+        if not inbody_found:
+            return messagebox.showwarning("Missing InBody Report", f"Could not find an InBody report for ERP '{erp_str}' in the 'inbody_report' folder.\n\nPlease split the Master PDF or add the file manually before generating.")
+
         template_dir = os.path.join(os.getcwd(), "template")
         template_path = os.path.join(template_dir, "master_template.docx")
         
@@ -961,8 +982,6 @@ class GrowthReportApp:
 
             doc.render(context)
 
-            db_filename = os.path.basename(self.db_name)
-            school_name = os.path.splitext(db_filename)[0]
             date_folder = combined_date.replace('/', '-')
             
             target_dir = os.path.join(os.getcwd(), "Reports", school_name, "interpretation_docs", date_folder)
@@ -997,7 +1016,6 @@ class GrowthReportApp:
                     self.silent_pdf_convert(save_path, temp_lvlx_pdf)
                     lvlx_ready = os.path.exists(temp_lvlx_pdf)
                     
-                    inbody_dir = os.path.join(os.getcwd(), "Reports", school_name, "inbody_report")
                     inbody_src = None
                     if os.path.exists(inbody_dir):
                         for f in os.listdir(inbody_dir):
