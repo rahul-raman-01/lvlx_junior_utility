@@ -109,17 +109,11 @@ def safe_float(val):
     except ValueError: return None
 
 class GrowthReportApp:
-    def __init__(self, root):
+    def __init__(self, root, passed_db_path, change_school_callback):
         self.root = root
+        self.change_school_callback = change_school_callback
         self.session_entry_count = 0
         self.quote_index = 0
-        
-        if len(sys.argv) > 1:
-            passed_db_path = sys.argv[1]
-        else:
-            self.root.withdraw() 
-            messagebox.showerror("Access Denied", "Direct access is disabled.\n\nPlease launch this tool through the LVLX School Portal.")
-            sys.exit() 
 
         raw_name = os.path.basename(passed_db_path).replace('.db', '')
         self.display_school_name = raw_name.replace('_', ' ').replace('-', ' ')
@@ -146,7 +140,6 @@ class GrowthReportApp:
         style = ttk.Style()
         style.theme_use('clam')
         
-        # Force strict color rules to bypass Mac Dark Mode rendering bugs
         style.configure('TFrame', background=self.bg_color)
         style.configure('TLabel', background=self.bg_color, foreground="black")
         style.configure('TEntry', fieldbackground="white", foreground="black", insertcolor="black")
@@ -234,42 +227,16 @@ class GrowthReportApp:
         self.create_widgets()
         self.update_observation_text() 
 
+    def cleanup(self):
+        pass
+
     def get_btn_style(self, hex_color):
-        """Dynamically styles buttons based on Operating System"""
         if self.is_mac:
             return {"highlightbackground": hex_color, "fg": "black"}
         else:
             return {"bg": hex_color, "fg": "white"}
 
     def init_db(self):
-        db_filename = os.path.basename(self.db_name)
-        school_name = os.path.splitext(db_filename)[0]
-        base_reports_dir = os.path.join(os.getcwd(), "Reports")
-        school_dir = os.path.join(base_reports_dir, school_name)
-
-        template_dir = os.path.join(os.getcwd(), "template")
-        os.makedirs(template_dir, exist_ok=True)
-
-        required_folders = [
-            "inbody_master", "inbody_report", "interpretation_docs", 
-            "Master Report", "inbody_data", "student_data", "parents_data", "logs", "database", "backups",
-            os.path.join("exports", "student_data"),
-            os.path.join("exports", "charts_data")
-        ]
-        for folder in required_folders: os.makedirs(os.path.join(school_dir, folder), exist_ok=True)
-
-        student_csv_path = os.path.join(school_dir, "student_data", "student_data.csv")
-        if not os.path.exists(student_csv_path):
-            with open(student_csv_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['ID', 'Name', 'Class'])
-
-        parents_csv_path = os.path.join(school_dir, "parents_data", "parents_data.csv")
-        if not os.path.exists(parents_csv_path):
-            with open(parents_csv_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['ID', 'Mail', 'Number'])
-
         with sqlite3.connect(self.db_name) as conn:
             conn.cursor().execute('''CREATE TABLE IF NOT EXISTS growth_reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -474,7 +441,7 @@ class GrowthReportApp:
         month_var = tk.StringVar(value=curr_date[1])
         year_var = tk.StringVar(value=curr_date[2])
 
-        days = [f"{i:02d}" for i in range(1, 32)]
+        days = [f"{i:02d}" for i in range(1, 31)]
         months = [f"{i:02d}" for i in range(1, 13)]
         current_year = int(datetime.now().strftime("%Y"))
         years = [str(i) for i in range(current_year - 5, current_year + 5)]
@@ -592,6 +559,9 @@ class GrowthReportApp:
         header_frame.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 15))
         
         tk.Label(header_frame, text=f"🏫 {self.display_school_name}", font=("Helvetica", 14, "bold"), fg="white", bg="#2c3e50").pack(side="left")
+        
+        tk.Button(header_frame, text="🏫 Change School", font=("Helvetica", 9, "bold"), command=self.change_school_callback, **self.get_btn_style("#e67e22")).pack(side="right", padx=(10, 0))
+
         date_display = tk.Label(header_frame, textvariable=self.report_date_var, font=("Helvetica", 11, "bold"), fg="#f39c12", bg="#2c3e50")
         date_display.pack(side="right")
         tk.Label(header_frame, text="Active Date: ", font=("Helvetica", 11), fg="white", bg="#2c3e50").pack(side="right")
@@ -1083,7 +1053,155 @@ class GrowthReportApp:
             print(err_msg)
             messagebox.showerror("Error", f"An error occurred:\n{str(e)}\n\n(See command prompt for full details)")
 
+# =====================================================================
+# DYNAMIC WRAPPER & LOADER (Identical across all 3 tools)
+# =====================================================================
+class LVLXWrapper:
+    def __init__(self, root, AppClass):
+        self.root = root
+        self.AppClass = AppClass
+        self.reports_folder = "Reports"
+        self.legacy_db_folder = "Databases"
+        self.is_mac = sys.platform == 'darwin'
+        self.bg_color = "#ECECEC" if self.is_mac else "#f4f6f7"
+        self.app_instance = None
+        
+        if not os.path.exists(self.reports_folder):
+            os.makedirs(self.reports_folder)
+
+        self.show_selection_dialog()
+
+    def get_btn_style(self, hex_color):
+        if self.is_mac:
+            return {"highlightbackground": hex_color, "fg": "black"}
+        else:
+            return {"bg": hex_color, "fg": "white"}
+
+    def show_selection_dialog(self):
+        if hasattr(self, 'app_instance') and self.app_instance:
+            if hasattr(self.app_instance, 'cleanup'):
+                self.app_instance.cleanup()
+            self.app_instance = None
+
+        for w in self.root.winfo_children():
+            w.destroy()
+
+        self.root.title("LVLX School Portal")
+        self.root.geometry("450x350")
+        self.root.configure(padx=20, pady=20, bg=self.bg_color)
+        
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('TFrame', background=self.bg_color)
+        style.configure('TLabel', background=self.bg_color, foreground="black")
+        style.configure('TEntry', fieldbackground="white", foreground="black", insertcolor="black")
+        style.configure('TCombobox', fieldbackground="white", foreground="black", insertcolor="black")
+
+        self.selected_db_var = tk.StringVar()
+        self.new_school_var = tk.StringVar()
+
+        ttk.Label(self.root, text="LVLX Ecosystem Loader", font=("Helvetica", 16, "bold")).pack(pady=(0, 20))
+
+        ttk.Label(self.root, text="Select Existing School:", font=("Helvetica", 10, "bold")).pack(anchor="w")
+        
+        db_frame = ttk.Frame(self.root)
+        db_frame.pack(fill="x", pady=(5, 15))
+        
+        self.school_combo = ttk.Combobox(db_frame, textvariable=self.selected_db_var, state="readonly", width=30)
+        self.school_combo.pack(side="left", fill="x", expand=True)
+        
+        tk.Button(db_frame, text="🔄", command=self.refresh_school_list).pack(side="left", padx=(5, 0))
+
+        ttk.Label(self.root, text="OR Create New School Database:", font=("Helvetica", 10, "bold")).pack(anchor="w")
+        ttk.Entry(self.root, textvariable=self.new_school_var, width=35).pack(anchor="w", pady=(5, 20))
+        ttk.Label(self.root, text="(e.g., 'Oakridge_High' - avoids spaces)", font=("Helvetica", 8, "italic")).pack(anchor="w", pady=(0, 15))
+
+        btn_frame = ttk.Frame(self.root)
+        btn_frame.pack(fill="x", pady=10)
+
+        tk.Button(btn_frame, text="🚀 Open Tool", font=("Helvetica", 12, "bold"), 
+                  command=self.open_ecosystem, **self.get_btn_style("#3498db")).pack(fill="x", ipady=8)
+
+        self.refresh_school_list()
+
+    def refresh_school_list(self):
+        display_names = set()
+        
+        if os.path.exists(self.reports_folder):
+            for school_name in os.listdir(self.reports_folder):
+                db_path = os.path.join(self.reports_folder, school_name, "database", f"{school_name}.db")
+                if os.path.exists(db_path):
+                    display_names.add(school_name)
+                    
+        if os.path.exists(self.legacy_db_folder):
+            for f in os.listdir(self.legacy_db_folder):
+                if f.endswith('.db'):
+                    display_names.add(f[:-3])
+        
+        sorted_names = sorted(list(display_names))
+        self.school_combo['values'] = sorted_names
+        
+        if sorted_names:
+            self.school_combo.set(sorted_names[0])
+        else:
+            self.school_combo.set("No schools found")
+
+    def build_school_directories(self, school_name):
+        """Universally scaffolds all folders and CSVs for any chosen school."""
+        school_dir = os.path.abspath(os.path.join(self.reports_folder, school_name))
+        
+        required_folders = [
+            "inbody_master", "inbody_report", "interpretation_docs", 
+            "Master Report", "inbody_data", "student_data", "parents_data", 
+            "logs", "database", "backups", "Cafeteria",
+            os.path.join("exports", "student_data"),
+            os.path.join("exports", "charts_data")
+        ]
+        
+        for folder in required_folders:
+            os.makedirs(os.path.join(school_dir, folder), exist_ok=True)
+
+        student_csv_path = os.path.join(school_dir, "student_data", "student_data.csv")
+        if not os.path.exists(student_csv_path):
+            with open(student_csv_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['ID', 'Name', 'Class'])
+
+        parents_csv_path = os.path.join(school_dir, "parents_data", "parents_data.csv")
+        if not os.path.exists(parents_csv_path):
+            with open(parents_csv_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['ID', 'Mail', 'Number'])
+
+    def open_ecosystem(self):
+        new_school = self.new_school_var.get().strip()
+        existing_school = self.selected_db_var.get().strip()
+
+        if not new_school and (not existing_school or existing_school == "No schools found" or existing_school == "Select a school"):
+            messagebox.showwarning("Validation Error", "Please select a school from the dropdown or type a new school name.")
+            return
+
+        if new_school:
+            confirm = messagebox.askyesno("Confirm New School", f"Are you sure you want to create a new database for:\n\n'{new_school}'?")
+            if not confirm: return 
+
+            safe_name = new_school.replace(" ", "_").replace("/", "-")
+            self.build_school_directories(safe_name)
+            db_path = os.path.abspath(os.path.join(self.reports_folder, safe_name, "database", f"{safe_name}.db"))
+        else:
+            self.build_school_directories(existing_school)
+            legacy_path = os.path.abspath(os.path.join(self.legacy_db_folder, f"{existing_school}.db"))
+            new_path = os.path.abspath(os.path.join(self.reports_folder, existing_school, "database", f"{existing_school}.db"))
+            db_path = legacy_path if os.path.exists(legacy_path) else new_path
+
+        for w in self.root.winfo_children():
+            w.destroy()
+        
+        self.root.configure(padx=0, pady=0)
+        self.app_instance = self.AppClass(self.root, db_path, self.show_selection_dialog)
+
+
 if __name__ == "__main__":
     root = tk.Tk()
-    app = GrowthReportApp(root)
+    app = LVLXWrapper(root, GrowthReportApp)
     root.mainloop()

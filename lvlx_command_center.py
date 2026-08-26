@@ -103,38 +103,15 @@ def categorize_metric(metric, val, age, gender):
     else: return "Needs Attention"
 
 class LVLXCommandCenter:
-    def __init__(self, root):
+    def __init__(self, root, passed_db_path, change_school_callback):
         self.root = root
+        self.change_school_callback = change_school_callback
         self.all_student_data = []
         self.current_log_file = None 
         self.active_text_widget = None 
         self.review_cards = [] 
         self.current_erp = None 
         self._autosave_timer = None
-        
-        # --- DYNAMIC ROOT DIRECTORY FIX ---
-        passed_db_path = None
-        for arg in sys.argv[1:]:
-            if arg.endswith('.db'):
-                passed_db_path = os.path.abspath(arg)
-                break
-                
-        if not passed_db_path:
-            self.root.withdraw() 
-            messagebox.showerror("Access Denied", "Direct access is disabled.\n\nPlease launch this tool through the LVLX School Portal.")
-            os._exit(0)
-
-        abs_db_path = os.path.abspath(passed_db_path)
-        parent_dir = os.path.dirname(abs_db_path)
-        parent_name = os.path.basename(parent_dir)
-        
-        if parent_name == "database":
-            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(parent_dir)))
-            os.chdir(root_dir)
-        elif parent_name == "Databases":
-            root_dir = os.path.dirname(parent_dir)
-            os.chdir(root_dir)
-        # ----------------------------------
 
         raw_name = os.path.basename(passed_db_path).replace('.db', '')
         self.display_school_name = raw_name.replace('_', ' ').replace('-', ' ')
@@ -173,8 +150,12 @@ class LVLXCommandCenter:
         self.create_widgets()
         self.refresh_all_data()
 
+    def cleanup(self):
+        """Safely disposes of timers before changing schools"""
+        if getattr(self, '_autosave_timer', None):
+            self.root.after_cancel(self._autosave_timer)
+
     def get_btn_style(self, hex_color):
-        """Dynamically styles buttons based on Operating System"""
         if self.is_mac:
             return {"highlightbackground": hex_color, "fg": "black"}
         else:
@@ -183,11 +164,13 @@ class LVLXCommandCenter:
     def create_widgets(self):
         header_frame = ttk.Frame(self.root)
         header_frame.pack(fill="x", pady=(0, 10))
-        ttk.Label(header_frame, text=f"📊 Analytics: {self.display_school_name}", font=("Helvetica", 18, "bold"), foreground="#2980b9").pack(side="left", padx=10)
-        tk.Button(header_frame, text="🔄 Refresh All Data", font=("Helvetica", 10, "bold"), command=self.refresh_all_data, **self.get_btn_style("#2ecc71")).pack(side="right", padx=10, ipadx=10, ipady=3)
+        ttk.Label(header_frame, text=f"📊 Analytics: {self.display_school_name}", font=("Helvetica", 18, "bold"), foreground="#2980b9").pack(side="left")
+        
+        tk.Button(header_frame, text="🔄 Refresh All Data", font=("Helvetica", 10, "bold"), command=self.refresh_all_data, **self.get_btn_style("#2ecc71")).pack(side="right", padx=(5,0), ipadx=10, ipady=3)
+        tk.Button(header_frame, text="🏫 Change School", font=("Helvetica", 10, "bold"), command=self.change_school_callback, **self.get_btn_style("#e67e22")).pack(side="right", padx=(10,5), ipadx=10, ipady=3)
 
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        self.notebook.pack(fill="both", expand=True, pady=10)
 
         self.tab_analytics = ttk.Frame(self.notebook)
         self.tab_data = ttk.Frame(self.notebook)
@@ -221,7 +204,6 @@ class LVLXCommandCenter:
             ("Age", 40, "center"), ("Gender", 50, "center"), ("ERP", 80, "center"),
             ("Class", 60, "center"), ("Date", 80, "center"), ("Height", 60, "center"),
             ("Weight", 60, "center"), ("BMI", 50, "center"),
-            ("Observations", 200, "w"),
             ("H-Range", 80, "center"), ("H-Status", 90, "center"),
             ("W-Range", 80, "center"), ("W-Status", 90, "center"),
             ("BMI-Range", 80, "center"), ("BMI-Status", 90, "center")
@@ -252,7 +234,9 @@ class LVLXCommandCenter:
         search_term = self.delete_erp_var.get().strip().lower()
         self.tree.delete(*self.tree.get_children())
         for row in self.all_student_data:
-            if search_term in str(row[5]).lower(): self.tree.insert("", "end", values=row)
+            if search_term in str(row[5]).lower(): 
+                display_row = list(row[:11]) + list(row[12:])
+                self.tree.insert("", "end", values=display_row)
 
     def parse_dietary_data(self, raw_text):
         questions = [
@@ -1038,8 +1022,15 @@ class LVLXCommandCenter:
         values = item['values']
         
         name, age, gender, erp, cls = values[2], values[3], values[4], values[5], values[6]
-        height, weight, bmi, obs = values[8], values[9], values[10], values[11]
-        h_stat, w_stat, bmi_stat = values[13], values[15], values[17]
+        height, weight, bmi = values[8], values[9], values[10]
+        h_stat, w_stat, bmi_stat = values[12], values[14], values[16]
+
+        student_id = values[0]
+        obs = ""
+        for r in self.all_student_data:
+            if str(r[0]) == str(student_id):
+                obs = r[11]
+                break
 
         top = tk.Toplevel(self.root)
         top.title(f"Student Health Profile - {name}")
@@ -1877,7 +1868,8 @@ class LVLXCommandCenter:
             
             self.tree.delete(*self.tree.get_children())
             for row in self.all_student_data: 
-                self.tree.insert("", "end", values=row)
+                display_row = list(row[:11]) + list(row[12:])
+                self.tree.insert("", "end", values=display_row)
 
         except sqlite3.Error as e:
             messagebox.showerror("Database Error", str(e))
@@ -1890,7 +1882,154 @@ class LVLXCommandCenter:
         except Exception: pass
         finally: os._exit(0)
 
+# =====================================================================
+# DYNAMIC WRAPPER & LOADER (Identical across all 3 tools)
+# =====================================================================
+class LVLXWrapper:
+    def __init__(self, root, AppClass):
+        self.root = root
+        self.AppClass = AppClass
+        self.reports_folder = "Reports"
+        self.legacy_db_folder = "Databases"
+        self.is_mac = sys.platform == 'darwin'
+        self.bg_color = "#ECECEC" if self.is_mac else "#f4f6f7"
+        self.app_instance = None
+        
+        if not os.path.exists(self.reports_folder):
+            os.makedirs(self.reports_folder)
+
+        self.show_selection_dialog()
+
+    def get_btn_style(self, hex_color):
+        if self.is_mac:
+            return {"highlightbackground": hex_color, "fg": "black"}
+        else:
+            return {"bg": hex_color, "fg": "white"}
+
+    def show_selection_dialog(self):
+        if hasattr(self, 'app_instance') and self.app_instance:
+            if hasattr(self.app_instance, 'cleanup'):
+                self.app_instance.cleanup()
+            self.app_instance = None
+
+        for w in self.root.winfo_children():
+            w.destroy()
+
+        self.root.title("LVLX School Portal")
+        self.root.geometry("450x350")
+        self.root.configure(padx=20, pady=20, bg=self.bg_color)
+        
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('TFrame', background=self.bg_color)
+        style.configure('TLabel', background=self.bg_color, foreground="black")
+        style.configure('TEntry', fieldbackground="white", foreground="black", insertcolor="black")
+        style.configure('TCombobox', fieldbackground="white", foreground="black", insertcolor="black")
+
+        self.selected_db_var = tk.StringVar()
+        self.new_school_var = tk.StringVar()
+
+        ttk.Label(self.root, text="LVLX Ecosystem Loader", font=("Helvetica", 16, "bold")).pack(pady=(0, 20))
+
+        ttk.Label(self.root, text="Select Existing School:", font=("Helvetica", 10, "bold")).pack(anchor="w")
+        
+        db_frame = ttk.Frame(self.root)
+        db_frame.pack(fill="x", pady=(5, 15))
+        
+        self.school_combo = ttk.Combobox(db_frame, textvariable=self.selected_db_var, state="readonly", width=30)
+        self.school_combo.pack(side="left", fill="x", expand=True)
+        
+        tk.Button(db_frame, text="🔄", command=self.refresh_school_list).pack(side="left", padx=(5, 0))
+
+        ttk.Label(self.root, text="OR Create New School Database:", font=("Helvetica", 10, "bold")).pack(anchor="w")
+        ttk.Entry(self.root, textvariable=self.new_school_var, width=35).pack(anchor="w", pady=(5, 20))
+        ttk.Label(self.root, text="(e.g., 'Oakridge_High' - avoids spaces)", font=("Helvetica", 8, "italic")).pack(anchor="w", pady=(0, 15))
+
+        btn_frame = ttk.Frame(self.root)
+        btn_frame.pack(fill="x", pady=10)
+
+        tk.Button(btn_frame, text="🚀 Open Tool", font=("Helvetica", 12, "bold"), 
+                  command=self.open_ecosystem, **self.get_btn_style("#3498db")).pack(fill="x", ipady=8)
+
+        self.refresh_school_list()
+
+    def refresh_school_list(self):
+        display_names = set()
+        
+        if os.path.exists(self.reports_folder):
+            for school_name in os.listdir(self.reports_folder):
+                db_path = os.path.join(self.reports_folder, school_name, "database", f"{school_name}.db")
+                if os.path.exists(db_path):
+                    display_names.add(school_name)
+                    
+        if os.path.exists(self.legacy_db_folder):
+            for f in os.listdir(self.legacy_db_folder):
+                if f.endswith('.db'):
+                    display_names.add(f[:-3])
+        
+        sorted_names = sorted(list(display_names))
+        self.school_combo['values'] = sorted_names
+        
+        if sorted_names:
+            self.school_combo.set(sorted_names[0])
+        else:
+            self.school_combo.set("No schools found")
+
+    def build_school_directories(self, school_name):
+        """Universally scaffolds all folders and CSVs for any chosen school."""
+        school_dir = os.path.abspath(os.path.join(self.reports_folder, school_name))
+        
+        required_folders = [
+            "inbody_master", "inbody_report", "interpretation_docs", 
+            "Master Report", "inbody_data", "student_data", "parents_data", 
+            "logs", "database", "backups", "Cafeteria",
+            os.path.join("exports", "student_data"),
+            os.path.join("exports", "charts_data")
+        ]
+        
+        for folder in required_folders:
+            os.makedirs(os.path.join(school_dir, folder), exist_ok=True)
+
+        student_csv_path = os.path.join(school_dir, "student_data", "student_data.csv")
+        if not os.path.exists(student_csv_path):
+            with open(student_csv_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['ID', 'Name', 'Class'])
+
+        parents_csv_path = os.path.join(school_dir, "parents_data", "parents_data.csv")
+        if not os.path.exists(parents_csv_path):
+            with open(parents_csv_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['ID', 'Mail', 'Number'])
+
+    def open_ecosystem(self):
+        new_school = self.new_school_var.get().strip()
+        existing_school = self.selected_db_var.get().strip()
+
+        if not new_school and (not existing_school or existing_school == "No schools found" or existing_school == "Select a school"):
+            messagebox.showwarning("Validation Error", "Please select a school from the dropdown or type a new school name.")
+            return
+
+        if new_school:
+            confirm = messagebox.askyesno("Confirm New School", f"Are you sure you want to create a new database for:\n\n'{new_school}'?")
+            if not confirm: return 
+
+            safe_name = new_school.replace(" ", "_").replace("/", "-")
+            self.build_school_directories(safe_name)
+            db_path = os.path.abspath(os.path.join(self.reports_folder, safe_name, "database", f"{safe_name}.db"))
+        else:
+            self.build_school_directories(existing_school)
+            legacy_path = os.path.abspath(os.path.join(self.legacy_db_folder, f"{existing_school}.db"))
+            new_path = os.path.abspath(os.path.join(self.reports_folder, existing_school, "database", f"{existing_school}.db"))
+            db_path = legacy_path if os.path.exists(legacy_path) else new_path
+
+        for w in self.root.winfo_children():
+            w.destroy()
+        
+        self.root.configure(padx=0, pady=0)
+        self.app_instance = self.AppClass(self.root, db_path, self.show_selection_dialog)
+
 if __name__ == "__main__":
     root = tk.Tk()
-    app = LVLXCommandCenter(root)
+    app = LVLXWrapper(root, LVLXCommandCenter)
     root.mainloop()
