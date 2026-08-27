@@ -112,7 +112,7 @@ class LVLXCommandCenter:
         self.review_cards = [] 
         self.current_erp = None 
         self._autosave_timer = None
-
+        
         raw_name = os.path.basename(passed_db_path).replace('.db', '')
         self.display_school_name = raw_name.replace('_', ' ').replace('-', ' ')
 
@@ -150,16 +150,15 @@ class LVLXCommandCenter:
         self.create_widgets()
         self.refresh_all_data()
 
-    def cleanup(self):
-        """Safely disposes of timers before changing schools"""
-        if getattr(self, '_autosave_timer', None):
-            self.root.after_cancel(self._autosave_timer)
-
     def get_btn_style(self, hex_color):
         if self.is_mac:
             return {"highlightbackground": hex_color, "fg": "black"}
         else:
             return {"bg": hex_color, "fg": "white"}
+
+    def cleanup(self):
+        if getattr(self, '_autosave_timer', None):
+            self.root.after_cancel(self._autosave_timer)
 
     def create_widgets(self):
         header_frame = ttk.Frame(self.root)
@@ -368,7 +367,6 @@ class LVLXCommandCenter:
         except Exception as e: messagebox.showerror("Import Error", f"Failed to import Dietary Recall:\n\n{str(e)}")
         finally: self.root.config(cursor="")
 
-    # --- TRUE WYSIWYG EDITOR LOGIC & SERIALIZATION ---
     def set_active_widget(self, event):
         self.active_text_widget = event.widget
 
@@ -501,7 +499,6 @@ class LVLXCommandCenter:
             clean_text = clean_text.replace("**", "")
             tw.insert("1.0", clean_text)
 
-    # --- AUTO-SAVE LOGIC ---
     def trigger_autosave(self):
         if getattr(self, '_autosave_timer', None):
             self.root.after_cancel(self._autosave_timer)
@@ -553,7 +550,6 @@ class LVLXCommandCenter:
         except Exception as e:
             print(f"Silent auto-save failed: {e}")
 
-    # --- DYNAMIC REVIEW CARD BUILDER & LOGIC ---
     def update_card_ui(self, card):
         if card['done']:
             bg_color = "#d4edda" 
@@ -1423,14 +1419,24 @@ class LVLXCommandCenter:
                 msg['Subject'] = "Your Child’s Health Snapshot is Ready – Discover What’s Next"
                 
                 body = f"""<html>
-                <body>
+                <body style="font-family: Arial, sans-serif; color: #333333;">
                     <p>Dear Parent,</p>
                     <p>We’re pleased to share your child’s Health & Body Composition Report.</p>
                     <p>It offers key insights into their growth, fitness, and overall well-being.</p>
                     <p>For deeper analysis and personalized guidance, explore our premium program designed to support your child’s health journey.</p>
-                    <p>Warm regards,<br>{self.display_school_name} & LVL X Junior<br>+91 9819300066</p>
+                    <p>Warm regards,<br>{self.display_school_name}</p>
                     <br>
-                    <img src="cid:lvlx_logo" alt="LVL X Logo" width="180">
+                    <table cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                            <td style="padding-right: 15px; border-right: 2px solid #7f8c8d; vertical-align: middle;">
+                                <img src="cid:lvlx_logo" alt="LVL X Logo" width="160" style="display: block; border: none;">
+                            </td>
+                            <td style="padding-left: 15px; vertical-align: middle; font-family: Arial, sans-serif;">
+                                <p style="margin: 0; font-size: 14px; font-weight: bold; color: #2c3e50;">Team LVL X Junior</p>
+                                <p style="margin: 5px 0 0 0; font-size: 13px; color: #34495e;">Direct: +91 9819300066</p>
+                            </td>
+                        </tr>
+                    </table>
                 </body>
                 </html>"""
                 
@@ -1883,7 +1889,7 @@ class LVLXCommandCenter:
         finally: os._exit(0)
 
 # =====================================================================
-# DYNAMIC WRAPPER & LOADER (Identical across all 3 tools)
+# DYNAMIC WRAPPER & LOADER
 # =====================================================================
 class LVLXWrapper:
     def __init__(self, root, AppClass):
@@ -1976,7 +1982,6 @@ class LVLXWrapper:
             self.school_combo.set("No schools found")
 
     def build_school_directories(self, school_name):
-        """Universally scaffolds all folders and CSVs for any chosen school."""
         school_dir = os.path.abspath(os.path.join(self.reports_folder, school_name))
         
         required_folders = [
