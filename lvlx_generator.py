@@ -49,34 +49,68 @@ try:
 except ImportError:
     HAS_PILLOW = False
 
-# Gender-specific WHO Medians
+try:
+    import pytesseract
+    HAS_TESSERACT = True
+except ImportError:
+    HAS_TESSERACT = False
+
+try:
+    import fitz  # PyMuPDF
+    HAS_FITZ = True
+except ImportError:
+    HAS_FITZ = False
+
+# Gender-specific WHO Medians (Ages 5-10)
 WHO_GUIDELINES = {
     'M': {
-        'BMI': {5: 15.2, 6: 15.3, 7: 15.5, 8: 15.7, 9: 16.1, 10: 16.7, 11: 17.3, 12: 18.0, 13: 18.8, 14: 19.6, 15: 20.4, 16: 21.1, 17: 21.8, 18: 22.4},
-        'Height': {5: 110.0, 6: 116.0, 7: 121.9, 8: 127.3, 9: 132.6, 10: 137.8, 11: 143.1, 12: 149.1, 13: 156.0, 14: 163.2, 15: 170.0, 16: 173.5, 17: 175.2, 18: 176.1},
-        'Weight': {5: 18.3, 6: 20.5, 7: 22.9, 8: 25.4, 9: 28.1, 10: 31.2, 11: 35.3, 12: 39.8, 13: 45.3, 14: 50.8, 15: 56.0, 16: 60.8, 17: 64.6, 18: 66.9}
+        'BMI': {5: 15.2, 6: 15.3, 7: 15.5, 8: 15.7, 9: 16.1, 10: 16.7},
+        'Height': {5: 110.0, 6: 116.0, 7: 121.9, 8: 127.3, 9: 132.6, 10: 137.8},
+        'Weight': {5: 18.3, 6: 20.5, 7: 22.9, 8: 25.4, 9: 28.1, 10: 31.2}
     },
     'F': {
-        'BMI': {5: 15.3, 6: 15.3, 7: 15.4, 8: 15.7, 9: 16.1, 10: 16.6, 11: 17.2, 12: 18.0, 13: 18.8, 14: 19.6, 15: 20.2, 16: 20.7, 17: 21.1, 18: 21.4},
-        'Height': {5: 109.4, 6: 115.1, 7: 120.8, 8: 126.6, 9: 132.2, 10: 138.6, 11: 145.0, 12: 151.2, 13: 156.4, 14: 159.8, 15: 161.7, 16: 162.5, 17: 162.9, 18: 163.1},
-        'Weight': {5: 18.2, 6: 20.2, 7: 22.4, 8: 25.0, 9: 28.2, 10: 31.9, 11: 36.9, 12: 41.5, 13: 45.8, 14: 49.8, 15: 53.0, 16: 55.4, 17: 56.7, 18: 57.3}
+        'BMI': {5: 15.3, 6: 15.3, 7: 15.4, 8: 15.7, 9: 16.1, 10: 16.6},
+        'Height': {5: 109.4, 6: 115.1, 7: 120.8, 8: 126.6, 9: 132.2, 10: 138.6},
+        'Weight': {5: 18.2, 6: 20.2, 7: 22.4, 8: 25.0, 9: 28.2, 10: 31.9}
+    }
+}
+
+# Indian Academy of Pediatrics (IAP) 2015 Medians (Ages 11-18)
+IAP_2015_GUIDELINES = {
+    'M': {
+        'BMI': {11: 16.5, 12: 17.1, 13: 17.8, 14: 18.5, 15: 19.2, 16: 19.9, 17: 20.6, 18: 21.2},
+        'Height': {11: 142.5, 12: 148.5, 13: 155.0, 14: 161.5, 15: 167.0, 16: 170.5, 17: 172.0, 18: 173.0},
+        'Weight': {11: 33.5, 12: 38.0, 13: 43.0, 14: 48.0, 15: 53.0, 16: 58.0, 17: 61.0, 18: 63.0}
+    },
+    'F': {
+        'BMI': {11: 16.8, 12: 17.5, 13: 18.3, 14: 19.0, 15: 19.6, 16: 20.1, 17: 20.5, 18: 20.8},
+        'Height': {11: 144.0, 12: 150.0, 13: 154.5, 14: 157.0, 15: 158.5, 16: 159.0, 17: 159.5, 18: 159.5},
+        'Weight': {11: 35.0, 12: 39.5, 13: 44.0, 14: 47.5, 15: 50.0, 16: 51.5, 17: 52.5, 18: 53.0}
     }
 }
 
 def get_healthy_range(metric, age, gender):
     if gender not in ['M', 'F'] or age is None: return "N/A"
-    safe_age = max(5, min(18, age))
-    median = WHO_GUIDELINES[gender][metric][safe_age]
+    safe_age = int(max(5, min(18, age)))
+    
+    if safe_age <= 10:
+        median = WHO_GUIDELINES[gender][metric][safe_age]
+    else:
+        median = IAP_2015_GUIDELINES[gender][metric][safe_age]
+        
     if metric == "Height": low_mult, high_mult = 0.93, 1.07
     else: low_mult, high_mult = 0.85, 1.15
     return f"{median * low_mult:.1f} - {median * high_mult:.1f}"
 
-# --- Detailed Terminology ---
 def categorize_metric(metric, val, age, gender):
     if gender not in ['M', 'F'] or age is None or val is None: return "N/A" 
-    safe_age = max(5, min(18, age))
+    safe_age = int(max(5, min(18, age)))
+    
     try:
-        median = WHO_GUIDELINES[gender][metric][safe_age]
+        if safe_age <= 10:
+            median = WHO_GUIDELINES[gender][metric][safe_age]
+        else:
+            median = IAP_2015_GUIDELINES[gender][metric][safe_age]
     except KeyError:
         return "N/A"
     
@@ -351,7 +385,6 @@ class GrowthReportApp:
 
         os.makedirs(output_dir, exist_ok=True)
         
-        # --- PROGRESS BAR UI SETUP ---
         progress_win = tk.Toplevel(self.root)
         progress_win.title("Splitting PDFs...")
         progress_win.geometry("420x160")
@@ -395,15 +428,74 @@ class GrowthReportApp:
             for input_file, pdf_reader in pdf_readers:
                 for page_num in range(len(pdf_reader.pages)):
                     page = pdf_reader.pages[page_num]
-                    page_text = page.extract_text()
-                    match = re.search(r'Test Date / Time(?:\[.*?\])?\n([A-Za-z0-9_-]+)', page_text)
-                    if match: page_id = match.group(1).strip()
-                    else:
-                        lines = page_text.split('\n')
-                        if len(lines) > 1 and 'ID' in lines[0]: page_id = lines[1].strip().split()[0]
-                        else: page_id = f"unknown_id_page_{generated_count+1}"
+                    page_text = page.extract_text() or ""
+                    
+                    if len(page_text.strip()) < 50:
+                        if HAS_FITZ and HAS_TESSERACT:
+                            try:
+                                status_lbl.config(text=f"Running OCR on page {current_page_idx+1}...")
+                                progress_win.update()
+                                doc_ocr = fitz.open(input_file)
+                                page_ocr = doc_ocr.load_page(page_num)
+                                pix = page_ocr.get_pixmap(dpi=200, alpha=False)
+                                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                                page_text = pytesseract.image_to_string(img)
+                                doc_ocr.close()
+                            except Exception as e:
+                                print(f"OCR Error: {e}")
+                        else:
+                            if not getattr(self, "ocr_warned", False):
+                                messagebox.showinfo("OCR Notice", "Image-based PDF detected.\n\nTo auto-extract IDs from scanned images, please install 'pytesseract' and 'PyMuPDF'. Processing will continue using fallback names for images.")
+                                self.ocr_warned = True
+
+                    page_id = None
+                    lines = [line.strip() for line in page_text.split('\n') if line.strip()]
+                    
+                    for i, line in enumerate(lines):
+                        upper_line = line.upper()
+                        
+                        if upper_line == 'ID':
+                            for j in range(1, min(7, len(lines) - i)):
+                                pot_id = lines[i+j].strip().split()[0]
+                                pot_id_upper = pot_id.upper()
+                                if pot_id_upper not in ['HEIGHT', 'AGE', 'GENDER', 'TEST', 'WEIGHT', 'DATE', 'TIME', 'INBODY'] and not pot_id_upper.endswith('CM') and not pot_id_upper.endswith('KG'):
+                                    page_id = pot_id
+                                    break
+                            if page_id: break
                             
+                        elif upper_line.startswith('ID:') or upper_line.startswith('ID '):
+                            parts = line.split(':', 1) if ':' in line else line.split(' ', 1)
+                            if len(parts) > 1 and parts[1].strip():
+                                pot_id = parts[1].strip().split()[0]
+                                pot_id_upper = pot_id.upper()
+                                if pot_id_upper not in ['HEIGHT', 'AGE', 'GENDER', 'TEST', 'WEIGHT', 'DATE', 'TIME'] and not pot_id_upper.endswith('CM'):
+                                    page_id = pot_id
+                            if page_id: break
+                    
+                    if not page_id:
+                        id_match = re.search(r'\bID\s*[:\n]?\s*([A-Za-z0-9_-]+)', page_text, re.IGNORECASE)
+                        if id_match:
+                            pot_id = id_match.group(1).strip()
+                            if pot_id.upper() not in ['HEIGHT', 'AGE', 'GENDER', 'TEST', 'WEIGHT', 'DATE', 'TIME']:
+                                page_id = pot_id
+                            
+                    if not page_id:
+                        date_match = re.search(r'Test Date / Time(?:\[.*?\])?\n([A-Za-z0-9_-]+)', page_text)
+                        if date_match: 
+                            page_id = date_match.group(1).strip()
+                            
+                    if not page_id:
+                        page_id = f"unknown_id_page_{generated_count+1}"
+
+                    page_id = "".join([c for c in page_id if c.isalnum() or c in ['_', '-']])
+                    if not page_id:
+                        page_id = f"unknown_id_page_{generated_count+1}"
+
                     output_filepath = os.path.join(output_dir, f"{page_id}.pdf")
+                    if os.path.exists(output_filepath):
+                        page_id = f"{page_id}_{generated_count+1}"
+                        output_filepath = os.path.join(output_dir, f"{page_id}.pdf")
+                        
                     pdf_writer = PyPDF2.PdfWriter()
                     pdf_writer.add_page(page)
                     with open(output_filepath, 'wb') as output_file: pdf_writer.write(output_file)
@@ -441,7 +533,7 @@ class GrowthReportApp:
         month_var = tk.StringVar(value=curr_date[1])
         year_var = tk.StringVar(value=curr_date[2])
 
-        days = [f"{i:02d}" for i in range(1, 31)]
+        days = [f"{i:02d}" for i in range(1, 32)]
         months = [f"{i:02d}" for i in range(1, 13)]
         current_year = int(datetime.now().strftime("%Y"))
         years = [str(i) for i in range(current_year - 5, current_year + 5)]
@@ -929,6 +1021,8 @@ class GrowthReportApp:
             rt_status.add(bold_text_val, bold=True)
             rt_status.add('" category.')
 
+            indicator_text = "WHO 2007" if age_int <= 10 else "IAP 2015"
+
             context = {
                 "name": name_str, "age": combined_age, "erp": erp_str,
                 "class": class_str, "date": combined_date, "height": h_str,
@@ -947,7 +1041,9 @@ class GrowthReportApp:
                 "weight_status": weight_sentence,
                 
                 "status_slider": status_image,
-                "status_text": rt_status
+                "status_text": rt_status,
+
+                "range_indicator": indicator_text
             }
 
             doc.render(context)
@@ -1199,7 +1295,6 @@ class LVLXWrapper:
         
         self.root.configure(padx=0, pady=0)
         self.app_instance = self.AppClass(self.root, db_path, self.show_selection_dialog)
-
 
 if __name__ == "__main__":
     root = tk.Tk()
