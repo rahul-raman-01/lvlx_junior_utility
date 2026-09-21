@@ -41,6 +41,20 @@ else:
 
 warnings.filterwarnings("ignore", message="Tight layout not applied")
 
+# --- LINTER & CRASH PREVENTION ---
+# Pre-define variables to None so strict code editors never throw "not defined" errors.
+ImageGrab = None
+Image = None
+pytesseract = None
+requests = None
+DateEntry = None
+fitz = None
+pptx = None
+comtypes = None
+convert_to_pdf = None
+PdfWriter = None
+PdfReader = None
+
 try:
     from PIL import ImageGrab, Image
     HAS_PILLOW = True
@@ -82,6 +96,18 @@ try:
     HAS_COMTYPES = True
 except ImportError:
     HAS_COMTYPES = False
+
+try:
+    from docx2pdf import convert as convert_to_pdf
+    HAS_DOCX2PDF = True
+except ImportError:
+    HAS_DOCX2PDF = False
+
+try:
+    from pypdf import PdfWriter, PdfReader
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
 
 # Gender-specific WHO Medians (Ages 5-10)
 WHO_GUIDELINES = {
@@ -1460,7 +1486,7 @@ class LVLXCommandCenter:
                                 <img src="cid:lvlx_logo" alt="LVL X Logo" width="160" style="display: block; border: none;">
                             </td>
                             <td style="padding-left: 15px; vertical-align: middle; font-family: Arial, sans-serif;">
-                                <p style="margin: 0; font-size: 14px; font-weight: bold; color: #2c3e50;">Team LVL X Junior</p>
+                                <p style="margin: 0; font-size: 14px; font-weight: bold; color: #2c3e50;">Team LVL X</p>
                                 <p style="margin: 5px 0 0 0; font-size: 13px; color: #34495e;">Direct: +91 9819300066</p>
                             </td>
                         </tr>
@@ -1909,8 +1935,7 @@ class LVLXCommandCenter:
             messagebox.showerror("Database Error", str(e))
 
     def split_master_pdfs(self):
-        try: import PyPDF2
-        except ImportError: return messagebox.showerror("Missing Library", "The 'PyPDF2' library is required to run your specific splitting logic.\n\nPlease open your terminal and run:\n pip install PyPDF2")
+        if not HAS_PYPDF: return messagebox.showerror("Missing Library", "The 'PyPDF2' library is required to run your specific splitting logic.\n\nPlease open your terminal and run:\n pip install PyPDF2")
 
         db_filename = os.path.basename(self.db_name)
         school_name = os.path.splitext(db_filename)[0]
@@ -1963,7 +1988,7 @@ class LVLXCommandCenter:
             total_pages = 0
             pdf_readers = []
             for input_file in pdf_files:
-                reader = PyPDF2.PdfReader(input_file)
+                reader = PdfReader(input_file)
                 total_pages += len(reader.pages)
                 pdf_readers.append((input_file, reader))
 
@@ -2046,7 +2071,7 @@ class LVLXCommandCenter:
                         page_id = f"{page_id}_{generated_count+1}"
                         output_filepath = os.path.join(output_dir, f"{page_id}.pdf")
                         
-                    pdf_writer = PyPDF2.PdfWriter()
+                    pdf_writer = PdfWriter()
                     pdf_writer.add_page(page)
                     with open(output_filepath, 'wb') as output_file: pdf_writer.write(output_file)
                     
@@ -2067,6 +2092,133 @@ class LVLXCommandCenter:
         finally: 
             self.root.config(cursor="")
 
+    def open_date_picker(self):
+        picker = tk.Toplevel(self.root)
+        picker.title("Select Date")
+        picker.geometry("320x160")
+        picker.transient(self.root) 
+        picker.grab_set()           
+
+        ttk.Label(picker, text="Set Active Report Date:", font=("Helvetica", 12, "bold")).pack(pady=15)
+        frame = ttk.Frame(picker)
+        frame.pack(pady=5)
+
+        curr_date = self.report_date_var.get().split('/')
+        day_var = tk.StringVar(value=curr_date[0])
+        month_var = tk.StringVar(value=curr_date[1])
+        year_var = tk.StringVar(value=curr_date[2])
+
+        days = [f"{i:02d}" for i in range(1, 32)]
+        months = [f"{i:02d}" for i in range(1, 13)]
+        current_year = int(datetime.now().strftime("%Y"))
+        years = [str(i) for i in range(current_year - 5, current_year + 5)]
+
+        ttk.Combobox(frame, textvariable=day_var, values=days, width=3, state="readonly").pack(side="left", padx=2)
+        ttk.Label(frame, text="/", font=("Helvetica", 12)).pack(side="left")
+        ttk.Combobox(frame, textvariable=month_var, values=months, width=3, state="readonly").pack(side="left", padx=2)
+        ttk.Label(frame, text="/", font=("Helvetica", 12)).pack(side="left")
+        ttk.Combobox(frame, textvariable=year_var, values=years, width=5, state="readonly").pack(side="left", padx=2)
+
+        def save_date():
+            self.report_date_var.set(f"{day_var.get()}/{month_var.get()}/{year_var.get()}")
+            picker.destroy()
+
+        ttk.Button(picker, text="Set Date", command=save_date).pack(pady=15)
+
+    def migrate_old_reports(self):
+        if not messagebox.askyesno("Confirm Standardization", "This will scan your old Master Reports and Interpretation Docs, and neatly flatten them strictly by Date.\n\nDo you want to proceed?"): return
+
+        db_filename = os.path.basename(self.db_name)
+        school_name = os.path.splitext(db_filename)[0]
+        base_reports_dir = os.path.join(os.getcwd(), "Reports")
+        school_dir = os.path.join(base_reports_dir, school_name)
+        
+        moved_count = 0
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                interp_dir = os.path.join(school_dir, "interpretation_docs")
+                if os.path.exists(interp_dir):
+                    for root, dirs, files in os.walk(interp_dir, topdown=False):
+                        for file in files:
+                            if file.startswith("LVLX_Growth_Report_") and file.endswith(".docx"):
+                                erp = file.replace("LVLX_Growth_Report_", "").replace(".docx", "")
+                                cursor.execute("SELECT report_date FROM growth_reports WHERE erp=? ORDER BY id DESC LIMIT 1", (erp,))
+                                row = cursor.fetchone()
+                                if row and row[0]:
+                                    date_folder = str(row[0]).replace('/', '-')
+                                    target_dir = os.path.join(interp_dir, date_folder)
+                                    os.makedirs(target_dir, exist_ok=True)
+                                    src = os.path.join(root, file)
+                                    dst = os.path.join(target_dir, file)
+                                    if src != dst:
+                                        shutil.move(src, dst)
+                                        moved_count += 1
+                        if root != interp_dir and not os.listdir(root):
+                            try: os.rmdir(root)
+                            except: pass
+
+                master_dir = os.path.join(school_dir, "Master Report")
+                if os.path.exists(master_dir):
+                    for root, dirs, files in os.walk(master_dir, topdown=False):
+                        for file in files:
+                            if file.startswith("LVLX_Master_Report_") and file.endswith(".pdf"):
+                                erp = file.replace("LVLX_Master_Report_", "").replace(".pdf", "")
+                                cursor.execute("SELECT report_date FROM growth_reports WHERE erp=? ORDER BY id DESC LIMIT 1", (erp,))
+                                row = cursor.fetchone()
+                                if row and row[0]:
+                                    date_folder = str(row[0]).replace('/', '-')
+                                    target_dir = os.path.join(master_dir, date_folder)
+                                    os.makedirs(target_dir, exist_ok=True)
+                                    src = os.path.join(root, file)
+                                    dst = os.path.join(target_dir, file)
+                                    if src != dst:
+                                        shutil.move(src, dst)
+                                        moved_count += 1
+                            elif file.startswith("temp_") and file.endswith(".pdf"):
+                                try: os.remove(os.path.join(root, file))
+                                except: pass
+                        if root != master_dir and not os.listdir(root):
+                            try: os.rmdir(root)
+                            except: pass
+                            
+            if moved_count > 0: messagebox.showinfo("Migration Complete", f"Success! 🚀\n\nFlattened and standardized {moved_count} old files strictly into Date folders.")
+            else: messagebox.showinfo("Migration Complete", "Your folders are already perfectly standardized!")
+        except Exception as e: messagebox.showerror("Migration Error", f"An error occurred during migration:\n{str(e)}")
+
+    def silent_pdf_convert(self, src, dest):
+        if os.name == 'nt' and HAS_DOCX2PDF:
+            with open(os.devnull, 'w') as devnull:
+                old_stdout = sys.stdout
+                old_stderr = sys.stderr
+                try:
+                    sys.stdout = devnull
+                    sys.stderr = devnull
+                    convert_to_pdf(src, dest)
+                finally:
+                    sys.stdout = old_stdout
+                    sys.stderr = old_stderr
+        elif sys.platform == 'darwin':
+            import subprocess
+            script = f'''
+            tell application "Microsoft Word"
+                open POSIX file "{os.path.abspath(src)}"
+                set theActiveDoc to the active document
+                save as theActiveDoc file format format PDF file name "{os.path.abspath(dest)}"
+                close theActiveDoc saving no
+            end tell
+            '''
+            subprocess.run(['osascript', '-e', script], check=True)
+
+    def get_ordinal(self, n):
+        if 11 <= (n % 100) <= 13: return f"{n}th"
+        return f"{n}" + {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+
+    def validate_pct(self, P):
+        if P == "": return True 
+        if P.isdigit(): return True 
+        return False
+
     def on_closing(self):
         try:
             plt.close('all')
@@ -2076,7 +2228,7 @@ class LVLXCommandCenter:
         finally: os._exit(0)
 
 # =====================================================================
-# DYNAMIC WRAPPER & LOADER
+# DYNAMIC WRAPPER & LOADER (Identical across all 3 tools)
 # =====================================================================
 class LVLXWrapper:
     def __init__(self, root, AppClass):

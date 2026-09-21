@@ -11,6 +11,9 @@ import random
 from datetime import datetime
 from docxtpl import DocxTemplate, InlineImage, RichText
 from docx.shared import Mm
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np
 
 # --- UNIVERSAL DIRECTORY FIX ---
 if getattr(sys, 'frozen', False):
@@ -30,7 +33,68 @@ else:
     else:
         os.chdir(script_dir)
 
+warnings = __import__('warnings')
+warnings.filterwarnings("ignore", message="Tight layout not applied")
+
+# --- LINTER & CRASH PREVENTION ---
+# Pre-define variables to None so strict code editors never throw "not defined" errors.
+ImageGrab = None
+Image = None
+pytesseract = None
+requests = None
+DateEntry = None
+fitz = None
+pptx = None
+comtypes = None
+convert_to_pdf = None
+PdfWriter = None
+PdfReader = None
+
+
+
 # --- PDF & Image Conversion Libraries ---
+try:
+    from PIL import ImageGrab, Image
+    HAS_PILLOW = True
+except ImportError:
+    HAS_PILLOW = False
+
+try:
+    import pytesseract
+    HAS_TESSERACT = True
+except ImportError:
+    HAS_TESSERACT = False
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
+try:
+    from tkcalendar import DateEntry
+    HAS_TKCALENDAR = True
+except ImportError:
+    HAS_TKCALENDAR = False
+
+try:
+    import fitz  # PyMuPDF
+    HAS_FITZ = True
+except ImportError:
+    HAS_FITZ = False
+
+try:
+    import pptx
+    HAS_PPTX = True
+except ImportError:
+    HAS_PPTX = False
+
+try:
+    import comtypes.client
+    HAS_COMTYPES = True
+except ImportError:
+    HAS_COMTYPES = False
+
 try:
     from docx2pdf import convert as convert_to_pdf
     HAS_DOCX2PDF = True
@@ -44,7 +108,19 @@ except ImportError:
     HAS_PYPDF = False
 
 try:
-    from PIL import Image
+    from docx2pdf import convert as convert_to_pdf
+    HAS_DOCX2PDF = True
+except ImportError:
+    HAS_DOCX2PDF = False
+
+try:
+    from pypdf import PdfWriter, PdfReader
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
+
+try:
+    from PIL import Image, ImageDraw
     HAS_PILLOW = True
 except ImportError:
     HAS_PILLOW = False
@@ -54,12 +130,6 @@ try:
     HAS_TESSERACT = True
 except ImportError:
     HAS_TESSERACT = False
-
-try:
-    import fitz  # PyMuPDF
-    HAS_FITZ = True
-except ImportError:
-    HAS_FITZ = False
 
 # Gender-specific WHO Medians (Ages 5-10)
 WHO_GUIDELINES = {
@@ -720,13 +790,27 @@ class GrowthReportApp:
             
             self.row_widgets.append((l1, l2, l3, l4, stat_var))
 
-        ttk.Label(self.scrollable_frame, text="Key Observations", font=("Helvetica", 14, "bold"), foreground="#2c3e50").grid(row=10, column=0, columnspan=2, sticky="w", pady=(20, 5))
+        # --- DYNAMIC GROWTH GRAPH ENGINE ---
+        self.graph_frame = tk.Frame(self.scrollable_frame, bg="#ffffff", bd=1, relief="solid")
+        self.graph_frame.grid(row=10, column=0, columnspan=2, sticky="we", pady=10)
+        
+        self.fig = plt.Figure(figsize=(8.5, 4.5), dpi=100)
+        self.fig.patch.set_facecolor('#ffffff')
+        self.ax1 = self.fig.add_subplot(121)
+        self.ax2 = self.fig.add_subplot(122)
+        self.fig.subplots_adjust(wspace=0.3, bottom=0.15, top=0.85, left=0.1, right=0.9)
+        
+        self.graph_canvas = FigureCanvasTkAgg(self.fig, master=self.graph_frame)
+        self.graph_canvas.get_tk_widget().pack(fill="both", expand=True)
+        # -----------------------------------
+
+        ttk.Label(self.scrollable_frame, text="Key Observations", font=("Helvetica", 14, "bold"), foreground="#2c3e50").grid(row=11, column=0, columnspan=2, sticky="w", pady=(20, 5))
         
         gradient_colors = ["#d4edda", "#fcf3cf", "#f7dc6f", "#f0b27a", "#e59866"]
         status_options = ["Within", "Slightly Below", "Below", "Slightly Above", "Above"]
 
         h_obs_frame = tk.Frame(self.scrollable_frame, bg="#f4f6f7")
-        h_obs_frame.grid(row=11, column=0, columnspan=2, sticky="we", pady=(0, 5))
+        h_obs_frame.grid(row=12, column=0, columnspan=2, sticky="we", pady=(0, 5))
         
         ttk.Label(h_obs_frame, text="Height Pct:").grid(row=0, column=0, sticky="w")
         self.h_pct_entry = ttk.Entry(h_obs_frame, textvariable=self.h_obs_percentile_var, width=8, validate='key', validatecommand=self.vcmd_pct)
@@ -742,7 +826,7 @@ class GrowthReportApp:
                            selectcolor="white", fg="black", relief="groove", borderwidth=1, tristatevalue="x").pack(side="left", padx=(0, 5), ipadx=3)
 
         w_obs_frame = tk.Frame(self.scrollable_frame, bg="#f4f6f7")
-        w_obs_frame.grid(row=12, column=0, columnspan=2, sticky="we", pady=(10, 5))
+        w_obs_frame.grid(row=13, column=0, columnspan=2, sticky="we", pady=(10, 5))
         
         ttk.Label(w_obs_frame, text="Weight Pct:").grid(row=0, column=0, sticky="w")
         self.w_pct_entry = ttk.Entry(w_obs_frame, textvariable=self.w_obs_percentile_var, width=8, validate='key', validatecommand=self.vcmd_pct)
@@ -758,19 +842,22 @@ class GrowthReportApp:
                            selectcolor="white", fg="black", relief="groove", borderwidth=1, tristatevalue="x").pack(side="left", padx=(0, 5), ipadx=3)
 
         self.obs_text = tk.Text(self.scrollable_frame, height=4, width=75, wrap="word", font=("Helvetica", 10), bg="white", fg="black", insertbackground="black", relief="solid", borderwidth=1)
-        self.obs_text.grid(row=13, column=0, columnspan=2, sticky="we", pady=10)
+        self.obs_text.grid(row=14, column=0, columnspan=2, sticky="we", pady=10)
 
-        ttk.Label(self.scrollable_frame, text="Overall Health Status", font=("Helvetica", 14, "bold"), foreground="#2c3e50").grid(row=14, column=0, columnspan=2, sticky="w", pady=(15, 5))
+        ttk.Label(self.scrollable_frame, text="Overall Health Status", font=("Helvetica", 14, "bold"), foreground="#2c3e50").grid(row=15, column=0, columnspan=2, sticky="w", pady=(15, 5))
         
         status_frame = tk.Frame(self.scrollable_frame, bg="#f4f6f7")
-        status_frame.grid(row=15, column=0, columnspan=2, sticky="we", pady=(0, 5))
+        status_frame.grid(row=16, column=0, columnspan=2, sticky="we", pady=(0, 5))
         
         tk.Radiobutton(status_frame, text="Within Range (Green)", variable=self.overall_status_var, value="green", bg="#d4edda", activebackground="#d4edda", selectcolor="white", fg="black", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
         tk.Radiobutton(status_frame, text="Borderline (Yellow)", variable=self.overall_status_var, value="yellow", bg="#fff3cd", activebackground="#fff3cd", selectcolor="white", fg="black", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
         tk.Radiobutton(status_frame, text="Needs Attention (Red)", variable=self.overall_status_var, value="red", bg="#f8d7da", activebackground="#f8d7da", selectcolor="white", fg="black", relief="groove", borderwidth=1, font=("Helvetica", 10, "bold"), tristatevalue="x").pack(side="left", padx=(0, 15), ipadx=10, ipady=2)
 
         self.btn_generate = tk.Button(self.scrollable_frame, text="Generate & Build Master Report", font=("Helvetica", 13, "bold"), command=self.trigger_generation, **self.get_btn_style("#2ecc71"))
-        self.btn_generate.grid(row=16, column=0, columnspan=2, sticky="we", pady=(25, 20), ipady=8)
+        self.btn_generate.grid(row=17, column=0, columnspan=2, sticky="we", pady=(25, 20), ipady=8)
+
+        # Draw empty chart on launch
+        self.update_growth_graph()
 
     def search_erp(self):
         erp_val = self.erp_var.get().strip()
@@ -846,6 +933,103 @@ class GrowthReportApp:
         elif found_inbody: messagebox.showinfo("Partial Success", "InBody data found, but Student data was missing for this ERP.")
         else: messagebox.showwarning("Not Found", "Could not find this ERP in either the student database or any of the InBody CSVs.")
 
+    def get_curve_data(self, metric, gender, percentile):
+        """Mathematical extrapolation tool to build continuous growth curves from arrays"""
+        base = []
+        for a in range(3, 19):
+            if a < 5:
+                if metric == 'Height': val = WHO_GUIDELINES[gender][metric][5] - (5-a)*6.5
+                else: val = WHO_GUIDELINES[gender][metric][5] - (5-a)*2.5
+            elif a <= 10:
+                val = WHO_GUIDELINES[gender][metric][a]
+            else:
+                val = IAP_2015_GUIDELINES[gender][metric][a]
+            base.append(val)
+        
+        base = np.array(base)
+        
+        if metric == 'Height':
+            mults = {10: 0.90, 25: 0.95, 50: 1.0, 75: 1.05, 90: 1.10}
+        else:
+            mults = {10: 0.70, 25: 0.85, 50: 1.0, 75: 1.15, 90: 1.30}
+            
+        return base * mults[percentile]
+
+    def update_growth_graph(self):
+        """Builds and dynamically plots the crosshair against the 5 key percentile curves"""
+        self.ax1.clear()
+        self.ax2.clear()
+
+        age = safe_float(self.age_var.get())
+        h = safe_float(self.height_var.get())
+        w = safe_float(self.weight_var.get())
+        gender = self.gender_var.get()
+
+        if gender not in ['M', 'F']:
+            gender = 'M' 
+
+        ages = np.arange(3, 19)
+
+        def plot_ax(ax, metric, val, y_min, y_max, y_step):
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='#e0e0e0')
+            ax.set_xticks(ages)
+            ax.set_yticks(np.arange(y_min, y_max + y_step, y_step))
+            ax.tick_params(axis='both', labelsize=8, pad=5)
+            
+            # LVLX Theme Formatting
+            for spine in ax.spines.values():
+                spine.set_edgecolor('black')
+                spine.set_linewidth(1.5)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.set_facecolor('#ffffff')
+            
+            # Dynamic Colors: Red (10), Orange (25), Green (50), Orange (75), Red (90)
+            pcts = [10, 25, 50, 75, 90]
+            colors = ['#e74c3c', '#e67e22', '#2ecc71', '#e67e22', '#e74c3c']
+            current_pct_band = ""
+            
+            for p, color in zip(pcts, colors):
+                curve = self.get_curve_data(metric, gender, p)
+                ax.plot(ages, curve, color=color, linewidth=1.5)
+                ax.text(18.2, curve[-1], f"{p}%", fontsize=9, fontweight='bold', color=color, va='center')
+                
+            if age is not None and val is not None and 3 <= age <= 18:
+                ax.plot(age, val, marker='+', markersize=18, markeredgewidth=3, color='black', zorder=5)
+                
+                idx = int(round(age)) - 3
+                if 0 <= idx < len(ages):
+                    c10 = self.get_curve_data(metric, gender, 10)[idx]
+                    c25 = self.get_curve_data(metric, gender, 25)[idx]
+                    c50 = self.get_curve_data(metric, gender, 50)[idx]
+                    c75 = self.get_curve_data(metric, gender, 75)[idx]
+                    c90 = self.get_curve_data(metric, gender, 90)[idx]
+                    
+                    if val < c10: current_pct_band = "0~10"
+                    elif val < c25: current_pct_band = "10~25"
+                    elif val < c50: current_pct_band = "25~50"
+                    elif val < c75: current_pct_band = "50~75"
+                    elif val < c90: current_pct_band = "75~90"
+                    else: current_pct_band = "90~100"
+
+            # Clean Axis Labels to Prevent Overlap
+            ax.set_xlabel("Age (Years)", fontsize=10, fontweight='bold', color='#2c3e50')
+            ax.set_ylabel(f"{metric} ({'cm' if metric == 'Height' else 'kg'})", fontsize=10, fontweight='bold', color='#2c3e50')
+            
+            ax.set_xlim(3, 19.5)
+            ax.set_ylim(y_min, y_max)
+            
+            # Padded Titles
+            if current_pct_band:
+                ax.set_title(f"{metric} :  {current_pct_band} %", fontsize=18, fontweight='bold', color='black', pad=15)
+            else:
+                ax.set_title(metric, fontsize=16, fontweight='bold', color='black', pad=15)
+
+        plot_ax(self.ax1, 'Height', h, 80, 190, 5)
+        plot_ax(self.ax2, 'Weight', w, 5, 115, 5)
+
+        self.graph_canvas.draw()
+
     def update_live_metrics(self, *args):
         h_str, w_str = self.height_var.get().strip(), self.weight_var.get().strip()
 
@@ -887,6 +1071,9 @@ class GrowthReportApp:
                 
             for lbl in (l1, l2, l3, l4):
                 lbl.config(bg=bg_color, fg=fg_color)
+                
+        # Trigger chart refresh on any metric change
+        self.update_growth_graph()
 
     def update_observation_text(self, *args):
         h_pct_raw = ''.join(filter(str.isdigit, self.h_obs_percentile_var.get()))
@@ -961,15 +1148,15 @@ class GrowthReportApp:
         school_name = os.path.splitext(db_filename)[0]
         
         inbody_dir = os.path.join(os.getcwd(), "Reports", school_name, "inbody_report")
+        
         inbody_found = False
+        inbody_src = None
         if os.path.exists(inbody_dir):
             for f in os.listdir(inbody_dir):
                 if os.path.splitext(f)[0].lower() == erp_str.lower():
                     inbody_found = True
+                    inbody_src = os.path.join(inbody_dir, f)
                     break
-                    
-        if not inbody_found:
-            return messagebox.showwarning("Missing InBody Report", f"Could not find an InBody report for ERP '{erp_str}' in the 'inbody_report' folder.\n\nPlease split the Master PDF or add the file manually before generating.")
 
         template_dir = os.path.join(os.getcwd(), "template")
         template_path = os.path.join(template_dir, "master_template.docx")
@@ -1082,13 +1269,12 @@ class GrowthReportApp:
                     self.silent_pdf_convert(save_path, temp_lvlx_pdf)
                     lvlx_ready = os.path.exists(temp_lvlx_pdf)
                     
-                    inbody_src = None
-                    if os.path.exists(inbody_dir):
-                        for f in os.listdir(inbody_dir):
-                            if os.path.splitext(f)[0].lower() == erp_str.lower():
-                                inbody_src = os.path.join(inbody_dir, f)
-                                break
-                                
+                    # --- DYNAMIC CHART FALLBACK PREPARATION ---
+                    temp_chart_png = os.path.join(master_date_dir, f"temp_chart_{erp_str}.png")
+                    temp_chart_pdf = os.path.join(master_date_dir, f"temp_chart_pdf_{erp_str}.pdf")
+                    self.fig.savefig(temp_chart_png, dpi=200, bbox_inches='tight', facecolor='#ffffff')
+                    # ------------------------------------------
+
                     inbody_ready = False
                     if inbody_src:
                         ext = os.path.splitext(inbody_src)[1].lower()
@@ -1105,16 +1291,31 @@ class GrowthReportApp:
                             a4_canvas.save(temp_inbody_pdf, "PDF", resolution=100.0)
                             inbody_ready = True
 
-                    if lvlx_ready or inbody_ready:
-                        merger = PdfWriter()
-                        lvlx_reader = None
-                        target_w, target_h = 595.276, 841.89  
+                    if not inbody_ready and HAS_PILLOW:
+                        chart_img = Image.open(temp_chart_png)
+                        if chart_img.mode == 'RGBA': chart_img = chart_img.convert('RGB')
+                        a4_canvas = Image.new('RGB', (827, 1169), '#ffffff')
+                        
+                        # Apply LVLX Aesthetic Header formatting (Yellow Stripe)
+                        draw = ImageDraw.Draw(a4_canvas)
+                        draw.rectangle([(0, 0), (827, 40)], fill="#FFC000") 
+                        
+                        ratio = min(750 / chart_img.width, 900 / chart_img.height)
+                        chart_resized = chart_img.resize((int(chart_img.width * ratio), int(chart_img.height * ratio)), Image.Resampling.LANCZOS)
+                        a4_canvas.paste(chart_resized, ((827 - chart_resized.width) // 2, 200))
+                        a4_canvas.save(temp_chart_pdf, "PDF", resolution=100.0)
 
-                        if lvlx_ready:
-                            lvlx_reader = PdfReader(temp_lvlx_pdf)
-                            if len(lvlx_reader.pages) > 0:
-                                target_w, target_h = float(lvlx_reader.pages[0].mediabox.width), float(lvlx_reader.pages[0].mediabox.height)
-                            for i in range(min(2, len(lvlx_reader.pages))): merger.add_page(lvlx_reader.pages[i])
+                    if lvlx_ready:
+                        merger = PdfWriter()
+                        lvlx_reader = PdfReader(temp_lvlx_pdf)
+                        target_w, target_h = 595.276, 841.89  
+                        
+                        if len(lvlx_reader.pages) > 0:
+                            target_w, target_h = float(lvlx_reader.pages[0].mediabox.width), float(lvlx_reader.pages[0].mediabox.height)
+                        
+                        # Add Template Pages 1 and 2
+                        for i in range(min(2, len(lvlx_reader.pages))): 
+                            merger.add_page(lvlx_reader.pages[i])
                                 
                         if inbody_ready:
                             inbody_reader = PdfReader(temp_inbody_pdf)
@@ -1122,9 +1323,18 @@ class GrowthReportApp:
                                 try: page.scale_to(target_w, target_h)
                                 except: pass
                                 merger.add_page(page)
+                        else:
+                            # Fallback: Merge Matplotlib Growth Chart
+                            if os.path.exists(temp_chart_pdf):
+                                chart_reader = PdfReader(temp_chart_pdf)
+                                for page in chart_reader.pages:
+                                    try: page.scale_to(target_w, target_h)
+                                    except: pass
+                                    merger.add_page(page)
                                 
-                        if lvlx_ready:
-                            for i in range(2, len(lvlx_reader.pages)): merger.add_page(lvlx_reader.pages[i])
+                        # Add Template Page 3+ (Program offerings & QR)
+                        for i in range(2, len(lvlx_reader.pages)): 
+                            merger.add_page(lvlx_reader.pages[i])
                             
                         merger.write(final_pdf)
                         merger.close()
@@ -1132,6 +1342,8 @@ class GrowthReportApp:
                     
                     if os.path.exists(temp_lvlx_pdf): os.remove(temp_lvlx_pdf)
                     if os.path.exists(temp_inbody_pdf): os.remove(temp_inbody_pdf)
+                    if os.path.exists(temp_chart_png): os.remove(temp_chart_png)
+                    if os.path.exists(temp_chart_pdf): os.remove(temp_chart_pdf)
 
                 except Exception as master_e: master_msg = f"\n\n⚠ Word Doc saved, but Master Report failed to build: {master_e}"
             else: master_msg = "\n\n⚠ Install 'docx2pdf', 'pypdf', and 'pillow' to enable instant Master Report building."
@@ -1150,7 +1362,7 @@ class GrowthReportApp:
             messagebox.showerror("Error", f"An error occurred:\n{str(e)}\n\n(See command prompt for full details)")
 
 # =====================================================================
-# DYNAMIC WRAPPER & LOADER (Identical across all 3 tools)
+# DYNAMIC WRAPPER & LOADER
 # =====================================================================
 class LVLXWrapper:
     def __init__(self, root, AppClass):
@@ -1243,7 +1455,6 @@ class LVLXWrapper:
             self.school_combo.set("No schools found")
 
     def build_school_directories(self, school_name):
-        """Universally scaffolds all folders and CSVs for any chosen school."""
         school_dir = os.path.abspath(os.path.join(self.reports_folder, school_name))
         
         required_folders = [
