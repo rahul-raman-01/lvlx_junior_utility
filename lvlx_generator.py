@@ -36,77 +36,7 @@ else:
 warnings = __import__('warnings')
 warnings.filterwarnings("ignore", message="Tight layout not applied")
 
-# --- LINTER & CRASH PREVENTION ---
-# Pre-define variables to None so strict code editors never throw "not defined" errors.
-ImageGrab = None
-Image = None
-pytesseract = None
-requests = None
-DateEntry = None
-fitz = None
-pptx = None
-comtypes = None
-convert_to_pdf = None
-PdfWriter = None
-PdfReader = None
-
-
-
 # --- PDF & Image Conversion Libraries ---
-try:
-    from PIL import ImageGrab, Image
-    HAS_PILLOW = True
-except ImportError:
-    HAS_PILLOW = False
-
-try:
-    import pytesseract
-    HAS_TESSERACT = True
-except ImportError:
-    HAS_TESSERACT = False
-
-try:
-    import requests
-    HAS_REQUESTS = True
-except ImportError:
-    HAS_REQUESTS = False
-
-try:
-    from tkcalendar import DateEntry
-    HAS_TKCALENDAR = True
-except ImportError:
-    HAS_TKCALENDAR = False
-
-try:
-    import fitz  # PyMuPDF
-    HAS_FITZ = True
-except ImportError:
-    HAS_FITZ = False
-
-try:
-    import pptx
-    HAS_PPTX = True
-except ImportError:
-    HAS_PPTX = False
-
-try:
-    import comtypes.client
-    HAS_COMTYPES = True
-except ImportError:
-    HAS_COMTYPES = False
-
-try:
-    from docx2pdf import convert as convert_to_pdf
-    HAS_DOCX2PDF = True
-except ImportError:
-    HAS_DOCX2PDF = False
-
-try:
-    from pypdf import PdfWriter, PdfReader
-    HAS_PYPDF = True
-except ImportError:
-    HAS_PYPDF = False
-
 try:
     from docx2pdf import convert as convert_to_pdf
     HAS_DOCX2PDF = True
@@ -1209,6 +1139,15 @@ class GrowthReportApp:
             rt_status.add('" category.')
 
             indicator_text = "WHO 2007" if age_int <= 10 else "IAP 2015"
+            
+            # --- NEW: Inline Custom Chart Logic ---
+            temp_chart_png = os.path.join(template_dir, f"temp_chart_{erp_str}.png")
+            if not inbody_found:
+                self.fig.savefig(temp_chart_png, dpi=300, bbox_inches='tight', facecolor='#ffffff')
+                custom_chart_image = InlineImage(doc, temp_chart_png, width=Mm(160)) 
+            else:
+                custom_chart_image = ""
+            # --------------------------------------
 
             context = {
                 "name": name_str, "age": combined_age, "erp": erp_str,
@@ -1229,8 +1168,9 @@ class GrowthReportApp:
                 
                 "status_slider": status_image,
                 "status_text": rt_status,
-
-                "range_indicator": indicator_text
+                
+                "range_indicator": indicator_text,
+                "custom_chart": custom_chart_image
             }
 
             doc.render(context)
@@ -1244,6 +1184,10 @@ class GrowthReportApp:
 
             if HAS_PILLOW and os.path.exists(os.path.join(template_dir, "temp_transparent_status.png")):
                 try: os.remove(os.path.join(template_dir, "temp_transparent_status.png"))
+                except: pass
+                
+            if os.path.exists(temp_chart_png):
+                try: os.remove(temp_chart_png)
                 except: pass
 
             with sqlite3.connect(self.db_name) as conn:
@@ -1268,12 +1212,6 @@ class GrowthReportApp:
                     
                     self.silent_pdf_convert(save_path, temp_lvlx_pdf)
                     lvlx_ready = os.path.exists(temp_lvlx_pdf)
-                    
-                    # --- DYNAMIC CHART FALLBACK PREPARATION ---
-                    temp_chart_png = os.path.join(master_date_dir, f"temp_chart_{erp_str}.png")
-                    temp_chart_pdf = os.path.join(master_date_dir, f"temp_chart_pdf_{erp_str}.pdf")
-                    self.fig.savefig(temp_chart_png, dpi=200, bbox_inches='tight', facecolor='#ffffff')
-                    # ------------------------------------------
 
                     inbody_ready = False
                     if inbody_src:
@@ -1291,20 +1229,6 @@ class GrowthReportApp:
                             a4_canvas.save(temp_inbody_pdf, "PDF", resolution=100.0)
                             inbody_ready = True
 
-                    if not inbody_ready and HAS_PILLOW:
-                        chart_img = Image.open(temp_chart_png)
-                        if chart_img.mode == 'RGBA': chart_img = chart_img.convert('RGB')
-                        a4_canvas = Image.new('RGB', (827, 1169), '#ffffff')
-                        
-                        # Apply LVLX Aesthetic Header formatting (Yellow Stripe)
-                        draw = ImageDraw.Draw(a4_canvas)
-                        draw.rectangle([(0, 0), (827, 40)], fill="#FFC000") 
-                        
-                        ratio = min(750 / chart_img.width, 900 / chart_img.height)
-                        chart_resized = chart_img.resize((int(chart_img.width * ratio), int(chart_img.height * ratio)), Image.Resampling.LANCZOS)
-                        a4_canvas.paste(chart_resized, ((827 - chart_resized.width) // 2, 200))
-                        a4_canvas.save(temp_chart_pdf, "PDF", resolution=100.0)
-
                     if lvlx_ready:
                         merger = PdfWriter()
                         lvlx_reader = PdfReader(temp_lvlx_pdf)
@@ -1317,22 +1241,15 @@ class GrowthReportApp:
                         for i in range(min(2, len(lvlx_reader.pages))): 
                             merger.add_page(lvlx_reader.pages[i])
                                 
+                        # Insert InBody PDF seamlessly 
                         if inbody_ready:
                             inbody_reader = PdfReader(temp_inbody_pdf)
                             for page in inbody_reader.pages:
                                 try: page.scale_to(target_w, target_h)
                                 except: pass
                                 merger.add_page(page)
-                        else:
-                            # Fallback: Merge Matplotlib Growth Chart
-                            if os.path.exists(temp_chart_pdf):
-                                chart_reader = PdfReader(temp_chart_pdf)
-                                for page in chart_reader.pages:
-                                    try: page.scale_to(target_w, target_h)
-                                    except: pass
-                                    merger.add_page(page)
                                 
-                        # Add Template Page 3+ (Program offerings & QR)
+                        # Add Template Page 3+ 
                         for i in range(2, len(lvlx_reader.pages)): 
                             merger.add_page(lvlx_reader.pages[i])
                             
@@ -1342,8 +1259,6 @@ class GrowthReportApp:
                     
                     if os.path.exists(temp_lvlx_pdf): os.remove(temp_lvlx_pdf)
                     if os.path.exists(temp_inbody_pdf): os.remove(temp_inbody_pdf)
-                    if os.path.exists(temp_chart_png): os.remove(temp_chart_png)
-                    if os.path.exists(temp_chart_pdf): os.remove(temp_chart_pdf)
 
                 except Exception as master_e: master_msg = f"\n\n⚠ Word Doc saved, but Master Report failed to build: {master_e}"
             else: master_msg = "\n\n⚠ Install 'docx2pdf', 'pypdf', and 'pillow' to enable instant Master Report building."
